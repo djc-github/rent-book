@@ -1,0 +1,42 @@
+spring:
+  application:
+    name: RentBook
+  profiles:
+    active: prod
+  config:
+    import:
+      - optional:classpath:/config/
+      - optional:file:./src/main/resources/config/
+      - optional:file:./config/
+  jackson:
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+
+server:
+  port: 8080
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+
+logging:
+  level:
+    root: info
+    com.djc.rentbook: debug
+
+rentbook:
+  lease-expire:
+    cron: "0 10 0 * * *"
+    zone: Asia/Shanghai
+  rent-collect:
+    advance-days: 7
+  upload:
+    base-dir: ./uploads
+    public-path: /uploads
+    max-room-images: 1
+    max-file-size-mb: 5
+    thumbnail-max-width: 480

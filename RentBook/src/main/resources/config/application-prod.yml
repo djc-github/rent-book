@@ -1,0 +1,31 @@
+spring:
+  datasource:
+    url: ${RENTBOOK_DB_URL:jdbc:postgresql://39.97.238.68:5432/rentbook}
+    username: ${RENTBOOK_DB_USERNAME:rentbook}
+    password: ${RENTBOOK_DB_PASSWORD:3m6MmhnmMK64GhjY}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: ${RENTBOOK_DB_POOL_MAX:30}
+      minimum-idle: ${RENTBOOK_DB_POOL_MIN:5}
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  file:
+    name: ${RENTBOOK_LOG_FILE:logs/rentbook.log}
+  level:
+    com.djc.rentbook: info
+
+rentbook:
+  cors:
+    allowed-origins: ${RENTBOOK_CORS_ALLOWED_ORIGINS:http://39.97.238.68,http://39.97.238.68:5173,http://39.97.238.68:8080,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080}
+  upload:
+    base-dir: ${RENTBOOK_UPLOAD_BASE_DIR:/data/rentbook/uploads}
+    public-path: ${RENTBOOK_UPLOAD_PUBLIC_PATH:/uploads}
+    max-room-images: ${RENTBOOK_UPLOAD_MAX_ROOM_IMAGES:1}
+    max-file-size-mb: ${RENTBOOK_UPLOAD_MAX_FILE_SIZE_MB:5}
+    thumbnail-max-width: ${RENTBOOK_UPLOAD_THUMBNAIL_MAX_WIDTH:480}

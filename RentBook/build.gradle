@@ -1,0 +1,101 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.3.6'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'com.djc'
+version = '0.0.1-SNAPSHOT'
+description = 'RentBook'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+    implementation 'org.springframework:spring-tx'
+    implementation 'org.mybatis.spring.boot:mybatis-spring-boot-starter:3.0.4'
+    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.flywaydb:flyway-database-postgresql'
+    runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.named('bootJar') {
+    enabled = false
+}
+
+tasks.named('bootRun') {
+    args '--spring.config.additional-location=optional:file:src/main/resources/config/',
+            '--logging.config=src/main/resources/config/logback-spring.xml',
+            '--spring.profiles.active=local'
+}
+
+tasks.named('jar') {
+    enabled = true
+    archiveFileName = 'RentBook.jar'
+    manifest {
+        attributes(
+                'Main-Class': 'com.djc.rentbook.RentBookApplication',
+                'Class-Path': configurations.runtimeClasspath.files.collect { "lib/${it.name}" }.join(' ')
+        )
+    }
+}
+
+tasks.named('processResources') {
+    exclude 'config/**'
+    exclude 'script/**'
+}
+
+tasks.register('packageDist', Sync) {
+    group = 'distribution'
+    description = 'Builds a deployable package with app jar, external lib dependencies and external config files.'
+    dependsOn tasks.named('jar')
+
+    into layout.buildDirectory.dir('distribution/RentBook')
+
+    from(tasks.named('jar')) {
+        into '.'
+    }
+
+    from(configurations.runtimeClasspath) {
+        into 'lib'
+    }
+
+    from('src/main/resources/config') {
+        into 'config'
+    }
+
+    from('src/main/resources/script') {
+        into 'bin'
+    }
+}
+
+tasks.register('packageZip', Zip) {
+    group = 'distribution'
+    description = 'Builds a zip archive for deployment.'
+    dependsOn tasks.named('packageDist')
+    archiveFileName = 'RentBook-deploy.zip'
+    destinationDirectory = layout.buildDirectory.dir('distribution')
+    from(layout.buildDirectory.dir('distribution/RentBook')) {
+        into 'RentBook'
+    }
+}
+
+tasks.named('assemble') {
+    dependsOn tasks.named('packageDist'), tasks.named('packageZip')
+}

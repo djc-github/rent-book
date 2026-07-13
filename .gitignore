@@ -1,0 +1,24 @@
+# Codex and repository setup backups
+.agents/
+.git-backup/
+
+# Frontend dependencies and generated files
+RentBookWeb/node_modules/
+RentBookWeb/dist/
+RentBookWeb/.vite/
+RentBookWeb/public/config/app-config.json
+
+# Backend generated files and runtime data
+RentBook/.gradle/
+RentBook/.idea/
+RentBook/build/
+RentBook/logs/
+RentBook/uploads/
+RentBook/*.iml
+
+# Local editor and operating-system files
+.idea/
+.vscode/
+*.log
+Thumbs.db
+.DS_Store

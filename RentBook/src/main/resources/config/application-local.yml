@@ -1,0 +1,23 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://192.168.74.128:5432/rentbook
+    username: user_kJD3EA
+    password: password_6WQP4a
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  file:
+    name: logs/rentbook.log
+
+rentbook:
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080

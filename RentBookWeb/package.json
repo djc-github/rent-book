@@ -1,0 +1,23 @@
+{
+  "name": "rentbook-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "config:local": "node scripts/use-config.mjs local",
+    "config:test": "node scripts/use-config.mjs test",
+    "config:prod": "node scripts/use-config.mjs prod",
+    "dev": "pnpm config:local && vite --host 0.0.0.0 --port 5173",
+    "dev:test": "pnpm config:test && vite --host 0.0.0.0 --port 5173",
+    "dev:prod": "pnpm config:prod && vite --host 0.0.0.0 --port 5173",
+    "build": "pnpm build:prod",
+    "build:local": "pnpm config:local && vite build",
+    "build:test": "pnpm config:test && vite build",
+    "build:prod": "pnpm config:prod && vite build",
+    "preview":
+     "vite preview --host 0.0.0.0 --port 4173"
+  },
+  "devDependencies": {
+    "vite": "^5.4.11"
+  }
+}

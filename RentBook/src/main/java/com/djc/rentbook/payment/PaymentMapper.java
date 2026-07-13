@@ -1,0 +1,108 @@
+package com.djc.rentbook.payment;
+
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+import java.time.OffsetDateTime;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+
+@Mapper
+public interface PaymentMapper {
+    @Select("""
+            select pay.*,
+                   coalesce(nullif(p.address, ''), p.name) as property_name,
+                   r.room_no
+            from rent_payments pay
+            left join contracts c on c.id = pay.contract_id
+            join rooms r on r.id = coalesce(pay.room_id, c.room_id)
+            join properties p on p.id = r.property_id
+            where pay.paid_date >= coalesce(#{from,jdbcType=DATE}, date '1900-01-01')
+              and pay.paid_date <= coalesce(#{to,jdbcType=DATE}, date '2999-12-31')
+              and pay.deleted = false
+            order by pay.paid_date desc, pay.created_at desc
+            """)
+    List<Map<String, Object>> list(@Param("from") LocalDate from, @Param("to") LocalDate to);
+
+    @Select("""
+            <script>
+            select pay.*,
+                   coalesce(nullif(p.address, ''), p.name) as property_name,
+                   r.room_no
+            from rent_payments pay
+            left join contracts c on c.id = pay.contract_id
+            join rooms r on r.id = coalesce(pay.room_id, c.room_id)
+            join properties p on p.id = r.property_id
+            where pay.paid_date >= coalesce(#{from,jdbcType=DATE}, date '1900-01-01')
+              and pay.paid_date &lt;= coalesce(#{to,jdbcType=DATE}, date '2999-12-31')
+              and pay.deleted = false
+              <if test="cursorPaidDate != null and cursorCreatedAt != null and cursorId != null">
+              and (pay.paid_date, pay.created_at, pay.id) &lt; (#{cursorPaidDate}, #{cursorCreatedAt}, #{cursorId})
+              </if>
+            order by pay.paid_date desc, pay.created_at desc, pay.id desc
+            limit #{limit}
+            </script>
+            """)
+    List<Map<String, Object>> listPage(@Param("from") LocalDate from,
+                                       @Param("to") LocalDate to,
+                                       @Param("cursorPaidDate") LocalDate cursorPaidDate,
+                                       @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
+                                       @Param("cursorId") Long cursorId,
+                                       @Param("limit") int limit);
+
+    @Select("select * from rent_payments where id = #{id} and deleted = false")
+    PaymentRecord find(@Param("id") Long id);
+
+    @Insert("""
+            insert into rent_payments(contract_id, period_start, period_end, paid_date, amount, method, receipt_no, notes)
+            values(#{contractId}, #{periodStart}, #{periodEnd}, #{paidDate}, #{amount}, #{method}, #{receiptNo}, #{notes})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    void create(PaymentRecord payment);
+
+    @Insert("""
+            insert into rent_payments(room_id, period_start, period_end, paid_date, amount, method, receipt_no, notes)
+            values(#{roomId}, #{periodStart}, #{periodEnd}, #{paidDate}, #{amount}, #{method}, #{receiptNo}, #{notes})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    void createRoomPayment(PaymentRecord payment);
+
+    @Update("""
+            update contracts
+            set next_due_date = greatest(next_due_date, cast(#{periodEnd} as date) + interval '1 day')::date,
+                updated_at = now()
+            where id = #{contractId}
+            """)
+    void moveNextDueDate(PaymentRecord payment);
+
+    @Update("""
+            update contracts
+            set next_due_date = least(next_due_date, #{periodStart}),
+                updated_at = now()
+            where id = #{contractId} and #{contractId,jdbcType=BIGINT} is not null
+            """)
+    void rollbackNextDueDate(PaymentRecord payment);
+
+    @Update("""
+            update rooms
+            set next_due_date = least(next_due_date, #{periodStart}),
+                last_paid_date = (
+                    select max(paid_date)
+                    from rent_payments
+                    where room_id = #{roomId}
+                      and deleted = false
+                      and id <> #{id}
+                ),
+                updated_at = now()
+            where id = #{roomId} and #{roomId,jdbcType=BIGINT} is not null
+            """)
+    void rollbackRoomNextDueDate(PaymentRecord payment);
+
+    @Update("update rent_payments set deleted = true where id = #{id} and deleted = false")
+    int delete(@Param("id") Long id);
+}
