@@ -87,6 +87,9 @@ public class PropertyService {
 
     @Transactional
     public Long createRoom(PropertyDtos.RoomCreateRequest request) {
+        if (request.status() != null && !request.status().isBlank() && !"VACANT".equals(request.status())) {
+            throw new IllegalArgumentException("新增房间默认空置，请新增后再使用房态或出租操作");
+        }
         RoomRecord record = new RoomRecord();
         record.setPropertyId(request.propertyId());
         record.setRoomNo(request.roomNo());
@@ -94,9 +97,9 @@ public class PropertyService {
         record.setArea(request.area());
         record.setRentAmount(request.rentAmount());
         record.setDepositAmount(request.depositAmount());
-        record.setStatus(request.status() == null ? "VACANT" : request.status());
-        record.setPayCycleMonths(normalizeCycle(request.payCycleMonths()));
-        record.setNextDueDate(request.nextDueDate());
+        record.setStatus("VACANT");
+        record.setPayCycleMonths(1);
+        record.setNextDueDate(null);
         record.setOrientation(request.orientation());
         record.setTags(request.tags());
         record.setNotes(request.notes());
@@ -110,19 +113,33 @@ public class PropertyService {
 
     @Transactional
     public void updateRoom(Long roomId, PropertyDtos.RoomCreateRequest request) {
+        RoomRecord existing = mapper.findRoomRecordForUpdate(roomId);
+        if (existing == null) {
+            throw new IllegalArgumentException("房间不存在");
+        }
         RoomRecord record = buildRoomRecord(request);
         record.setId(roomId);
         if (mapper.updateRoom(record) == 0) {
             throw new IllegalArgumentException("房间不存在");
         }
-        log.info("Updated room id={}, propertyId={}, roomNo={}, status={}, rentAmount={}, depositAmount={}, payCycleMonths={}, nextDueDate={}",
-                roomId, record.getPropertyId(), record.getRoomNo(), record.getStatus(), record.getRentAmount(),
-                record.getDepositAmount(), record.getPayCycleMonths(), record.getNextDueDate());
+        log.info("Updated room id={}, propertyId={}, roomNo={}, status={}, rentAmount={}, depositAmount={}",
+                roomId, record.getPropertyId(), record.getRoomNo(), existing.getStatus(),
+                record.getRentAmount(), record.getDepositAmount());
     }
 
     @Transactional
     public void updateRoomStatus(Long roomId, String status) {
         assertRoomStatus(status);
+        RoomRecord room = mapper.findRoomRecordForUpdate(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("房间不存在");
+        }
+        if ("RENTED".equals(status) && !"RENTED".equals(room.getStatus())) {
+            throw new IllegalArgumentException("出租房间请使用“出租/收租设置”，不能直接修改为已出租");
+        }
+        if ("RENTED".equals(room.getStatus()) && "RESERVED".equals(status)) {
+            throw new IllegalArgumentException("已出租房间不能直接改为预定，请先设为空置");
+        }
         if (mapper.updateRoomStatus(roomId, status) == 0) {
             throw new IllegalArgumentException("房间不存在");
         }
@@ -143,7 +160,17 @@ public class PropertyService {
 
     @Transactional
     public void startRoomRent(Long roomId, PropertyDtos.RoomRentRequest request) {
+        RoomRecord room = mapper.findRoomRecordForUpdate(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("房间不存在");
+        }
         validateRentPeriod(request.leaseStartDate(), request.leaseEndDate(), request.nextDueDate(), normalizeCycle(request.payCycleMonths()));
+        LocalDate latestCoveredDate = paymentMapper.findLatestCoveredDate(roomId);
+        if (latestCoveredDate != null && !request.nextDueDate().isAfter(latestCoveredDate)) {
+            throw new IllegalArgumentException(
+                    "下次应收日不能落在已经收过租的日期内，当前已收至" + latestCoveredDate + "，请先核对或撤销错误记录"
+            );
+        }
         if (mapper.startRoomRent(roomId, request) == 0) {
             throw new IllegalArgumentException("房间不存在");
         }
@@ -154,7 +181,7 @@ public class PropertyService {
 
     @Transactional
     public Long collectRoomRent(Long roomId, PropertyDtos.RoomCollectRentRequest request) {
-        RoomRecord room = mapper.findRoomRecord(roomId);
+        RoomRecord room = mapper.findRoomRecordForUpdate(roomId);
         if (room == null) {
             throw new IllegalArgumentException("房间不存在");
         }
@@ -162,9 +189,6 @@ public class PropertyService {
             throw new IllegalArgumentException("只有已出租的房间才能收租");
         }
         LocalDate today = LocalDate.now();
-        if (today.equals(room.getLastPaidDate())) {
-            throw new IllegalArgumentException("今天已经登记过收租，如录错请先撤销最近收租记录");
-        }
         if (room.getNextDueDate() == null) {
             throw new IllegalArgumentException("请先设置下次应收日");
         }
@@ -172,7 +196,10 @@ public class PropertyService {
             throw new IllegalArgumentException("还没到可收租时间，请在应收日前" + rentCollectAdvanceDays + "天内再收");
         }
         LocalDate periodStart = room.getNextDueDate();
-        int months = normalizeCycle(request.months());
+        int months = normalizeCycle(room.getPayCycleMonths());
+        if (request.months() != null && request.months() != months) {
+            throw new IllegalArgumentException("收租周期已经变化，请刷新页面后重新确认");
+        }
         LocalDate periodEnd = periodStart.plusMonths(months).minusDays(1);
         if (room.getLeaseEndDate() != null && periodStart.isAfter(room.getLeaseEndDate())) {
             throw new IllegalArgumentException("租期已结束，不能继续收租");
@@ -180,8 +207,18 @@ public class PropertyService {
         if (room.getLeaseEndDate() != null && periodEnd.isAfter(room.getLeaseEndDate())) {
             throw new IllegalArgumentException("本次收租会超过租期结束日期，请先调整租期或减少收租月数");
         }
+        Long overlappingId = paymentMapper.findOverlappingPaymentId(roomId, periodStart, periodEnd, null);
+        if (overlappingId != null) {
+            throw new IllegalArgumentException(
+                    "该房间的" + periodStart + "至" + periodEnd + "租期已经登记过收租，请先核对收租记录"
+            );
+        }
         LocalDate paidDate = request.paidDate() == null ? LocalDate.now() : request.paidDate();
-        BigDecimal amount = request.amount() == null ? room.getRentAmount().multiply(BigDecimal.valueOf(months)) : request.amount();
+        BigDecimal expectedAmount = room.getRentAmount().multiply(BigDecimal.valueOf(months));
+        if (request.amount() != null && request.amount().compareTo(expectedAmount) != 0) {
+            throw new IllegalArgumentException("收租金额与房间租金和收租月数不一致，请先修改收租设置");
+        }
+        BigDecimal amount = expectedAmount;
 
         PaymentRecord payment = new PaymentRecord();
         payment.setRoomId(roomId);
@@ -200,8 +237,8 @@ public class PropertyService {
 
     @Transactional
     public void delete(Long id) {
-        if (mapper.countActiveContractsByProperty(id) > 0) {
-            throw new IllegalArgumentException("房源下还有生效合同，请先退租或撤销合同");
+        if (mapper.countActiveContractsByProperty(id) > 0 || mapper.countRentedRoomsByProperty(id) > 0) {
+            throw new IllegalArgumentException("房源下还有已出租房间，请先将房间设为空置");
         }
         List<Long> roomIds = mapper.listRoomIdsByProperty(id);
         if (mapper.deleteProperty(id) == 0) {
@@ -214,8 +251,8 @@ public class PropertyService {
 
     @Transactional
     public void deleteRoom(Long roomId) {
-        if (mapper.countActiveContractsByRoom(roomId) > 0) {
-            throw new IllegalArgumentException("房间还有生效合同，请先退租或换房");
+        if (mapper.countActiveContractsByRoom(roomId) > 0 || mapper.countRentedRoom(roomId) > 0) {
+            throw new IllegalArgumentException("已出租房间不能删除，请先将房间设为空置");
         }
         if (mapper.deleteRoom(roomId) == 0) {
             throw new IllegalArgumentException("房间不存在");
@@ -273,9 +310,9 @@ public class PropertyService {
         if (nextDueDate.isBefore(leaseStartDate) || nextDueDate.isAfter(leaseEndDate)) {
             throw new IllegalArgumentException("下次应收日必须在租期范围内");
         }
-        LocalDate firstCycleEnd = leaseStartDate.plusMonths(payCycleMonths).minusDays(1);
-        if (firstCycleEnd.isAfter(leaseEndDate)) {
-            throw new IllegalArgumentException("几个月一收不能超过租期长度");
+        LocalDate nextCycleEnd = nextDueDate.plusMonths(payCycleMonths).minusDays(1);
+        if (nextCycleEnd.isAfter(leaseEndDate)) {
+            throw new IllegalArgumentException("从下次应收日起，本次收租周期不能超过租期结束日期");
         }
     }
 }

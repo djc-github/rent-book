@@ -1,6 +1,7 @@
 package com.djc.rentbook.payment;
 
 import com.djc.rentbook.common.ApiResponse;
+import com.djc.rentbook.mutation.MutationOperation;
 import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
@@ -27,11 +28,13 @@ public class PaymentController {
     }
 
     @PostMapping
+    @MutationOperation(module = "收租", action = "新增收租记录")
     public ApiResponse<Map<String, Long>> create(@Valid @RequestBody PaymentDtos.PaymentRequest request) {
         return ApiResponse.ok(Map.of("id", service.create(request)));
     }
 
     @DeleteMapping("/{id}")
+    @MutationOperation(module = "收租", action = "撤销收租记录")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok(null);

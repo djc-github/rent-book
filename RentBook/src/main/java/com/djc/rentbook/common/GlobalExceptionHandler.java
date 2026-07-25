@@ -4,6 +4,7 @@ import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -38,6 +39,18 @@ public class GlobalExceptionHandler {
         return new ApiResponse<>(false, null, "数据库操作失败，请稍后重试", OffsetDateTime.now());
     }
 
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ApiResponse<Void> dataConflict(DataIntegrityViolationException ex) {
+        String detail = rootMessage(ex);
+        String message = detail.contains("uk_rent_payment_room_period_no_overlap")
+                || detail.contains("已经登记过收租")
+                ? "该房间对应租期已经登记过收租，请刷新后核对"
+                : "数据与现有记录冲突，请刷新后核对";
+        log.warn("Database integrity conflict: {}", detail);
+        return new ApiResponse<>(false, null, message, OffsetDateTime.now());
+    }
+
     @ExceptionHandler(MaxUploadSizeExceededException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ApiResponse<Void> uploadTooLarge(MaxUploadSizeExceededException ex) {
@@ -57,5 +70,13 @@ public class GlobalExceptionHandler {
     public ApiResponse<Void> unexpected(Exception ex) {
         log.error("Unexpected server error", ex);
         return new ApiResponse<>(false, null, "系统开小差了，请查看后端日志", OffsetDateTime.now());
+    }
+
+    private String rootMessage(Throwable throwable) {
+        Throwable current = throwable;
+        while (current.getCause() != null) {
+            current = current.getCause();
+        }
+        return current.getMessage() == null ? "" : current.getMessage();
     }
 }

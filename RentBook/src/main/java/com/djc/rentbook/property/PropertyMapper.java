@@ -43,8 +43,14 @@ public interface PropertyMapper {
             """)
     int countActiveContractsByProperty(@Param("propertyId") Long propertyId);
 
+    @Select("select count(*) from rooms where property_id = #{propertyId} and deleted = false and status = 'RENTED'")
+    int countRentedRoomsByProperty(@Param("propertyId") Long propertyId);
+
     @Select("select count(*) from contracts where room_id = #{roomId} and deleted = false and status = 'ACTIVE'")
     int countActiveContractsByRoom(@Param("roomId") Long roomId);
+
+    @Select("select count(*) from rooms where id = #{roomId} and deleted = false and status = 'RENTED'")
+    int countRentedRoom(@Param("roomId") Long roomId);
 
     @Select("""
             select r.*, t.name as tenant_name, c.end_date as contract_end_date,
@@ -122,9 +128,6 @@ public interface PropertyMapper {
                 area = #{area},
                 rent_amount = #{rentAmount},
                 deposit_amount = #{depositAmount},
-                status = #{status},
-                pay_cycle_months = #{payCycleMonths},
-                next_due_date = #{nextDueDate},
                 orientation = #{orientation},
                 tags = #{tags},
                 notes = #{notes},
@@ -136,9 +139,10 @@ public interface PropertyMapper {
     @Update("""
             update rooms
             set status = #{status},
-                next_due_date = case when #{status} = 'VACANT' then null else next_due_date end,
-                lease_start_date = case when #{status} = 'VACANT' then null else lease_start_date end,
-                lease_end_date = case when #{status} = 'VACANT' then null else lease_end_date end,
+                next_due_date = case when #{status} = 'RENTED' then next_due_date else null end,
+                last_paid_date = case when #{status} = 'RENTED' then last_paid_date else null end,
+                lease_start_date = case when #{status} = 'RENTED' then lease_start_date else null end,
+                lease_end_date = case when #{status} = 'RENTED' then lease_end_date else null end,
                 updated_at = now()
             where id = #{roomId} and deleted = false
             """)
@@ -153,6 +157,7 @@ public interface PropertyMapper {
                 lease_start_date = #{request.leaseStartDate},
                 lease_end_date = #{request.leaseEndDate},
                 next_due_date = #{request.nextDueDate},
+                last_paid_date = case when status = 'RENTED' then last_paid_date else null end,
                 notes = concat_ws(E'\n', notes, #{request.notes,jdbcType=VARCHAR}),
                 updated_at = now()
             where id = #{roomId} and deleted = false
@@ -161,6 +166,9 @@ public interface PropertyMapper {
 
     @Select("select * from rooms where id = #{roomId} and deleted = false")
     RoomRecord findRoomRecord(@Param("roomId") Long roomId);
+
+    @Select("select * from rooms where id = #{roomId} and deleted = false for update")
+    RoomRecord findRoomRecordForUpdate(@Param("roomId") Long roomId);
 
     @Select("select id from rooms where property_id = #{propertyId} and deleted = false")
     List<Long> listRoomIdsByProperty(@Param("propertyId") Long propertyId);
@@ -187,6 +195,7 @@ public interface PropertyMapper {
             update rooms
             set status = 'VACANT',
                 next_due_date = null,
+                last_paid_date = null,
                 lease_start_date = null,
                 lease_end_date = null,
                 updated_at = now()

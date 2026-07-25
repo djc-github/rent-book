@@ -14,7 +14,28 @@ public interface DashboardMapper {
               (select count(*) from rooms where deleted = false) as room_count,
               (select count(*) from rooms where deleted = false and status = 'VACANT') as vacant_count,
               (select count(*) from rooms where deleted = false and status = 'RENTED') as rented_count,
-              (select coalesce(sum(amount), 0) from rent_payments where deleted = false and paid_date >= date_trunc('month', current_date)) as month_income,
+              (select coalesce(sum(amount), 0)
+                 from rent_payments
+                where deleted = false
+                  and room_id is not null
+                  and period_start >= date_trunc('month', current_date)::date
+                  and period_start < (date_trunc('month', current_date) + interval '1 month')::date) as month_income,
+              (select coalesce(sum(month_due.amount), 0)
+                 from (
+                   select pay.amount
+                   from rent_payments pay
+                   where pay.deleted = false
+                     and pay.room_id is not null
+                     and pay.period_start >= date_trunc('month', current_date)::date
+                     and pay.period_start < (date_trunc('month', current_date) + interval '1 month')::date
+                   union all
+                   select r.rent_amount * greatest(r.pay_cycle_months, 1)
+                   from rooms r
+                   where r.deleted = false
+                     and r.status = 'RENTED'
+                     and r.next_due_date >= date_trunc('month', current_date)::date
+                     and r.next_due_date < (date_trunc('month', current_date) + interval '1 month')::date
+                 ) month_due) as month_receivable,
               (select count(*) from rooms where deleted = false and status = 'RENTED' and next_due_date <= current_date + 7) as due_soon_count,
               (select count(*) from rooms where deleted = false and status = 'RENTED' and next_due_date < current_date) as overdue_count,
               0 as expiring_count

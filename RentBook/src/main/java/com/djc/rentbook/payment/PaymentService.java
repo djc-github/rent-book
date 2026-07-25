@@ -49,6 +49,16 @@ public class PaymentService {
         if (request.periodEnd().isBefore(request.periodStart())) {
             throw new IllegalArgumentException("收租周期结束日期不能早于开始日期");
         }
+        Long roomId = mapper.findContractRoomIdForUpdate(request.contractId());
+        if (roomId == null) {
+            throw new IllegalArgumentException("合同不存在或对应房间已删除");
+        }
+        Long overlappingId = mapper.findOverlappingPaymentId(
+                roomId, request.periodStart(), request.periodEnd(), null
+        );
+        if (overlappingId != null) {
+            throw new IllegalArgumentException("该房间对应租期已经登记过收租，请勿重复提交");
+        }
         PaymentRecord record = new PaymentRecord();
         record.setContractId(request.contractId());
         record.setPeriodStart(request.periodStart());
@@ -71,6 +81,17 @@ public class PaymentService {
         PaymentRecord payment = mapper.find(id);
         if (payment == null) {
             throw new IllegalArgumentException("收租记录不存在");
+        }
+        if (payment.getRoomId() != null) {
+            if (mapper.lockRoom(payment.getRoomId()) == null) {
+                throw new IllegalArgumentException("收租记录对应的房间不存在");
+            }
+        } else if (mapper.findContractRoomIdForUpdate(payment.getContractId()) == null) {
+            throw new IllegalArgumentException("收租记录对应的合同不存在");
+        }
+        payment = mapper.findForUpdate(id);
+        if (payment == null) {
+            throw new IllegalArgumentException("收租记录已撤销，请刷新后查看");
         }
         if (mapper.delete(id) == 0) {
             throw new IllegalArgumentException("收租记录不存在");

@@ -13,6 +13,7 @@ const state = {
   paymentsHasMore: false,
   imageRoomId: null,
   imageUploading: false,
+  imageAction: "",
   imagePreviewUrl: "",
   imagePreviewName: "",
   scrollLockY: 0,
@@ -26,13 +27,15 @@ const roomImageLoader = {
   loaded: new Set(),
 };
 
+const mutationRequests = new Map();
+
 const labels = {
   dashboard: "总览",
   properties: "房态收租",
 };
 
 const hints = {
-  dashboard: "今天先看哪些该收、哪些空着",
+  dashboard: "让老娘今天先看看哪些该收、哪些空着",
   properties: "按房源分组看房间，出租、收租、改房态都在这里处理",
 };
 
@@ -46,9 +49,37 @@ const statusText = {
   DUE_SOON: "待收",
 };
 
+const roomStatusSearchTerms = {
+  VACANT: "空置 未租 待租 可出租",
+  RESERVED: "预定 已预定 预约",
+  RENTED: "已出租 出租 已租 在租",
+  MAINTENANCE: "维修 维护",
+  OFFLINE: "下架 停用",
+};
+
+const PROPERTY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTWXYZ#".split("");
+const PROPERTY_SEARCH_TARGET = "SEARCH";
+const PROPERTY_PINYIN_BOUNDARIES = [
+  ["A", "阿"], ["B", "八"], ["C", "擦"], ["D", "搭"], ["E", "蛾"], ["F", "发"],
+  ["G", "噶"], ["H", "哈"], ["J", "击"], ["K", "喀"], ["L", "拉"], ["M", "妈"],
+  ["N", "拿"], ["O", "哦"], ["P", "啪"], ["Q", "期"], ["R", "然"], ["S", "撒"],
+  ["T", "塌"], ["W", "挖"], ["X", "西"], ["Y", "压"], ["Z", "匝"],
+];
+const PROPERTY_PINYIN_OVERRIDES = { "长": "C", "重": "C", "厦": "X", "乐": "L" };
+const propertyPinyinCollator = (() => {
+  try {
+    return new Intl.Collator("zh-Hans-CN-u-co-pinyin");
+  } catch (error) {
+    return new Intl.Collator("zh-CN");
+  }
+})();
+let propertyAlphabetDragging = false;
+let propertyAlphabetPreviewTimer = 0;
+let propertyAlphabetPreviewShownAt = 0;
+
 const demo = {
   dashboard: {
-    summary: { roomCount: 4, vacantCount: 2, rentedCount: 1, monthIncome: 1800, dueSoonCount: 1, overdueCount: 1 },
+    summary: { roomCount: 4, vacantCount: 2, rentedCount: 1, monthIncome: 1800, monthReceivable: 3450, dueSoonCount: 1, overdueCount: 1 },
     dueRent: [
       { roomId: 1, nextDueDate: "2026-06-25", rentAmount: 1800, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "301-A", urgency: "OVERDUE" },
       { roomId: 3, nextDueDate: "2026-07-02", rentAmount: 1650, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "302-A", urgency: "DUE_SOON" },
@@ -82,7 +113,8 @@ const toYmd = (date) => {
 };
 const today = () => toYmd(new Date());
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
-const fmtMoney = (value) => `￥${Number(value || 0).toLocaleString("zh-CN")}`;
+const fmtAmount = (value) => Number(value || 0).toLocaleString("zh-CN");
+const fmtMoney = (value) => `￥${fmtAmount(value)}`;
 const normalizeDate = (value) => value ? String(value).trim().replace(/[./]/g, "-").replaceAll("/", "-") : "";
 const parseDate = (value) => {
   const date = value ? new Date(`${normalizeDate(value)}T00:00:00`) : null;
@@ -113,18 +145,47 @@ const normalize = (value) => {
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [toCamel(key), normalize(item)]));
 };
 
-async function api(path, options = {}) {
-  const response = await fetch(`${apiBase()}${path}`, { headers: { "Content-Type": "application/json" }, ...options });
-  const body = await response.json();
-  if (!response.ok || !body.success) throw new Error(body.message || "请求失败");
-  return normalize(body.data);
+function createIdempotencyKey() {
+  if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`;
 }
 
-async function apiForm(path, formData) {
-  const response = await fetch(`${apiBase()}${path}`, { method: "POST", body: formData });
-  const body = await response.json();
-  if (!response.ok || !body.success) throw new Error(body.message || "请求失败");
-  return normalize(body.data);
+function api(path, options = {}) {
+  return requestApi(path, options, typeof options.body === "string" ? options.body : "");
+}
+
+function apiForm(path, formData) {
+  const file = formData.get("file");
+  const signatureBody = file instanceof File
+    ? `${file.name}|${file.size}|${file.lastModified}`
+    : "multipart";
+  return requestApi(path, { method: "POST", body: formData }, signatureBody);
+}
+
+function requestApi(path, options = {}, signatureBody = "") {
+  const method = String(options.method || "GET").toUpperCase();
+  const mutation = !["GET", "HEAD", "OPTIONS"].includes(method);
+  const signature = mutation ? `${method}|${path}|${signatureBody}` : "";
+  if (mutation && mutationRequests.has(signature)) return mutationRequests.get(signature);
+
+  const headers = new Headers(options.headers || {});
+  if (!(options.body instanceof FormData) && options.body != null && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+  if (mutation) headers.set("X-Idempotency-Key", createIdempotencyKey());
+
+  const request = fetch(`${apiBase()}${path}`, { ...options, method, headers })
+    .then(async (response) => {
+      const body = await response.json().catch(() => null);
+      if (!response.ok || !body?.success) throw new Error(body?.message || `请求失败（${response.status}）`);
+      return normalize(body.data);
+    })
+    .finally(() => {
+      if (mutationRequests.get(signature) === request) mutationRequests.delete(signature);
+    });
+
+  if (mutation) mutationRequests.set(signature, request);
+  return request;
 }
 
 const mediaUrl = (url) => {
@@ -253,6 +314,157 @@ function markRoomCardImageError(img) {
   if (placeholder) placeholder.textContent = "图片加载失败";
 }
 
+function propertyAlphabetInitial(value) {
+  const first = String(value || "").trim().charAt(0);
+  if (!first) return "#";
+  const latin = first.toUpperCase();
+  if (/^[A-Z]$/.test(latin)) return PROPERTY_ALPHABET.includes(latin) ? latin : "#";
+  if (PROPERTY_PINYIN_OVERRIDES[first]) return PROPERTY_PINYIN_OVERRIDES[first];
+  for (let index = PROPERTY_PINYIN_BOUNDARIES.length - 1; index >= 0; index -= 1) {
+    const [letter, boundary] = PROPERTY_PINYIN_BOUNDARIES[index];
+    if (propertyPinyinCollator.compare(first, boundary) >= 0) return letter;
+  }
+  return "#";
+}
+
+function comparePropertiesByPinyin(left, right) {
+  const leftTitle = propertyTitle(left);
+  const rightTitle = propertyTitle(right);
+  const leftRank = PROPERTY_ALPHABET.indexOf(propertyAlphabetInitial(leftTitle));
+  const rightRank = PROPERTY_ALPHABET.indexOf(propertyAlphabetInitial(rightTitle));
+  return leftRank - rightRank || propertyPinyinCollator.compare(leftTitle, rightTitle);
+}
+
+function renderPropertyAlphabet() {
+  const rail = $("#propertyAlphabetIndex");
+  const preview = $("#propertyAlphabetPreview");
+  const groups = Array.from(document.querySelectorAll(".property-group[data-property-initial]"));
+  const available = new Set(groups.map((group) => group.dataset.propertyInitial));
+  rail.innerHTML = `<button type="button" class="property-search-jump" data-property-search
+      aria-label="定位到搜索栏"><span class="rail-search-icon" aria-hidden="true"></span></button>` + PROPERTY_ALPHABET.map((letter) => `
+    <button type="button" data-property-letter="${letter}" class="${available.has(letter) ? "" : "unavailable"}"
+      aria-label="定位到 ${letter} 开头的房源" aria-disabled="${available.has(letter) ? "false" : "true"}">${letter}</button>`).join("");
+  const show = state.view === "properties" && groups.length > 0 && window.matchMedia("(max-width: 620px)").matches;
+  rail.hidden = !show;
+  rail.setAttribute("aria-hidden", String(!show));
+  if (!show) {
+    preview.hidden = true;
+    preview.setAttribute("aria-hidden", "true");
+  }
+}
+
+function syncPropertyAlphabetActive(groups, stickyTop) {
+  const rail = $("#propertyAlphabetIndex");
+  if (rail.hidden || !groups.length) return;
+  let currentGroup = groups[0];
+  for (const group of groups) {
+    if (group.getBoundingClientRect().top > stickyTop + 12) break;
+    currentGroup = group;
+  }
+  const activeLetter = currentGroup.dataset.propertyInitial || "#";
+  rail.querySelectorAll("[data-property-letter]").forEach((button) => {
+    const active = button.dataset.propertyLetter === activeLetter;
+    button.classList.toggle("active", active);
+    if (active) button.setAttribute("aria-current", "true");
+    else button.removeAttribute("aria-current");
+  });
+}
+
+function showPropertyAlphabetPreview(letter, autoHide = false) {
+  const preview = $("#propertyAlphabetPreview");
+  const letterButton = $("#propertyAlphabetIndex")?.querySelector(`[data-property-letter="${letter}"]`);
+  const letterRect = letterButton?.getBoundingClientRect();
+  const previewY = letterRect ? letterRect.top + letterRect.height / 2 : window.innerHeight / 2;
+  window.clearTimeout(propertyAlphabetPreviewTimer);
+  propertyAlphabetPreviewShownAt = Date.now();
+  preview.textContent = letter;
+  preview.style.setProperty("--alphabet-preview-y", `${Math.max(42, Math.min(window.innerHeight - 42, previewY))}px`);
+  preview.hidden = false;
+  preview.setAttribute("aria-hidden", "false");
+  if (autoHide) propertyAlphabetPreviewTimer = window.setTimeout(hidePropertyAlphabetPreview, 420);
+}
+
+function hidePropertyAlphabetPreview() {
+  window.clearTimeout(propertyAlphabetPreviewTimer);
+  const preview = $("#propertyAlphabetPreview");
+  preview.hidden = true;
+  preview.setAttribute("aria-hidden", "true");
+}
+
+function jumpToPropertyLetter(letter, smooth = false) {
+  showPropertyAlphabetPreview(letter, smooth);
+  const target = document.querySelector(`.property-group[data-property-initial="${letter}"]`);
+  if (!target) return;
+  const stickyTop = Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0);
+  const top = window.scrollY + target.getBoundingClientRect().top - stickyTop - 8;
+  window.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+}
+
+function jumpToPropertySearch(smooth = true) {
+  const target = document.querySelector(".toolbar-panel");
+  if (!target) return;
+  const stickyTop = Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0);
+  const top = window.scrollY + target.getBoundingClientRect().top - stickyTop - 8;
+  window.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+}
+
+function propertyLetterAtPoint(clientX, clientY) {
+  const rail = $("#propertyAlphabetIndex");
+  const rect = rail.getBoundingClientRect();
+  if (clientX < rect.left - 8 || clientX > rect.right + 8 || clientY < rect.top || clientY > rect.bottom) return "";
+  const targets = [PROPERTY_SEARCH_TARGET, ...PROPERTY_ALPHABET];
+  const index = Math.min(targets.length - 1, Math.floor((clientY - rect.top) / rect.height * targets.length));
+  return targets[Math.max(0, index)] || "";
+}
+
+function finishPropertyAlphabetDrag(event) {
+  if (!propertyAlphabetDragging) return;
+  propertyAlphabetDragging = false;
+  if ($("#propertyAlphabetIndex").hasPointerCapture?.(event.pointerId)) {
+    $("#propertyAlphabetIndex").releasePointerCapture(event.pointerId);
+  }
+  window.clearTimeout(propertyAlphabetPreviewTimer);
+  propertyAlphabetPreviewTimer = window.setTimeout(hidePropertyAlphabetPreview, 300);
+}
+
+function syncPropertyContexts() {
+  const mobile = window.matchMedia("(max-width: 620px)").matches;
+  const stickyTop = mobile ? Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0) : 0;
+  document.documentElement.style.setProperty("--property-context-top", stickyTop + 6 + "px");
+  const context = $("#propertyContext");
+  const rail = $("#propertyAlphabetIndex");
+  const groups = Array.from(document.querySelectorAll(".property-group"));
+  const showRail = mobile && state.view === "properties" && groups.length > 0;
+  rail.hidden = !showRail;
+  rail.setAttribute("aria-hidden", String(!showRail));
+  let activeGroup = null;
+
+  groups.forEach((group) => {
+    const head = group.querySelector(".property-head");
+    if (!mobile || !head || group.classList.contains("collapsed")) return;
+    const headRect = head.getBoundingClientRect();
+    const groupRect = group.getBoundingClientRect();
+    const nextHead = group.nextElementSibling?.querySelector(".property-head");
+    const nextPropertyVisible = nextHead && nextHead.getBoundingClientRect().top < window.innerHeight - 140;
+    const visible = headRect.bottom <= stickyTop + 4
+      && groupRect.bottom > stickyTop + 48
+      && !nextPropertyVisible;
+    if (visible && !activeGroup) activeGroup = group;
+  });
+
+  context.hidden = !activeGroup;
+  context.setAttribute("aria-hidden", String(!activeGroup));
+  syncPropertyAlphabetActive(groups, stickyTop);
+  if (!activeGroup) return;
+  $("#propertyContextIndex").textContent = activeGroup.dataset.propertyContextIndex || "";
+  $("#propertyContextLabel").textContent = activeGroup.dataset.propertyContextLabel || "";
+}
+
+function schedulePropertyContextSync() {
+  window.cancelAnimationFrame(schedulePropertyContextSync.frame);
+  schedulePropertyContextSync.frame = window.requestAnimationFrame(syncPropertyContexts);
+}
+
 async function loadRuntimeConfig() {
   try {
     const response = await fetch("./config/app-config.json", { cache: "no-store" });
@@ -263,9 +475,12 @@ async function loadRuntimeConfig() {
 }
 
 async function load() {
+  document.body.dataset.view = state.view;
   $("#pageTitle").textContent = labels[state.view];
   $("#pageHint").textContent = hints[state.view];
-  $("#quickAddBtn").textContent = state.view === "properties" ? "新增房间" : "新增房源";
+  $("#quickAddBtn").hidden = state.view !== "properties";
+  $("#quickAddBtn").textContent = "新增房间";
+  $("#propertyAddBtn").hidden = state.view !== "properties";
   setBusy(true);
   try {
     if (state.view === "dashboard") state.data.dashboard = await api("/api/dashboard");
@@ -318,27 +533,39 @@ async function loadPayments({ reset = false } = {}) {
 function render() {
   if (state.view === "dashboard") $("#content").innerHTML = renderDashboard(state.data.dashboard || demo.dashboard);
   if (state.view === "properties") $("#content").innerHTML = renderProperties(state.data.properties || demo.properties, state.data.rooms || demo.rooms, state.data.payments || []);
+  renderPropertyAlphabet();
   scheduleRoomImages();
+  schedulePropertyContextSync();
 }
 
 function renderDashboard(data) {
   const s = data.summary || {};
-  const dueRows = filterDueRows(data.dueRent || []);
+  const allDueRows = data.dueRent || [];
+  const dueRows = filterDueRows(allDueRows);
+  const dueCountText = searchKeyword() ? `找到 ${dueRows.length} 间` : `待收 ${allDueRows.length} 间`;
+  const hasMonthReceivable = s.monthReceivable !== null
+    && s.monthReceivable !== undefined
+    && s.monthReceivable !== "";
+  const monthReceivable = hasMonthReceivable ? s.monthReceivable : null;
+  const monthReceivableText = hasMonthReceivable ? fmtAmount(monthReceivable) : "--";
+  const monthIncomeProgress = `<span>${fmtMoney(s.monthIncome)}</span><span>/ ${monthReceivableText}</span>`;
+  const incomeProgressClass = Math.max(Math.abs(Number(s.monthIncome || 0)), Math.abs(Number(monthReceivable || 0))) >= 100000
+    ? "income-progress income-progress-wide"
+    : "income-progress";
   return `
     <section class="metrics">
-      ${metric("本月已收", fmtMoney(s.monthIncome), "")}
-      ${metric("逾期未收", s.overdueCount || 0, "danger")}
+      ${metric("本月已收 / 应收", monthIncomeProgress, incomeProgressClass)}
+      ${metric("空置房间 / 总房间", `${s.vacantCount || 0}/${s.roomCount || 0}`, "")}
       ${metric("7天内应收", s.dueSoonCount || 0, "warn")}
-      ${metric("空置房间", `${s.vacantCount || 0}/${s.roomCount || 0}`, "")}
+      ${metric("逾期未收", s.overdueCount || 0, "danger")}
     </section>
-    <section class="panel">
-      <div class="panel-head"><h3>该收租的房间</h3><span class="tag warn">确认后入账</span></div>
-      ${table(["房源/房间", "应收日", "金额", "状态", "操作"], dueRows, (r) => `
-        <td><strong>${esc(r.propertyName)} ${esc(r.roomNo)}</strong></td>
-        <td>${esc(r.nextDueDate || "-")}</td>
-        <td>${fmtMoney(r.rentAmount)}</td>
-        <td>${tag(statusText[r.urgency] || "待收", r.urgency === "OVERDUE" ? "danger" : "warn")}</td>
-        <td class="row-actions">${collectButton(r)}</td>`)}
+    <section class="panel dashboard-due-panel">
+      <div class="panel-head">
+        <div class="panel-title"><h3>该收租的房间</h3><small>点收租后入账</small></div>
+        <span class="tag warn" id="dashboardDueCount">${dueCountText}</span>
+      </div>
+      ${searchBox("搜房源地址、房号或应收日期")}
+      <div id="dashboardDueResults">${renderDashboardDueResults(dueRows)}</div>
     </section>
     <section class="panel">
       <div class="panel-head"><h3>空置房间</h3><span class="tag">${(data.vacantRooms || []).length} 间</span></div>
@@ -346,32 +573,54 @@ function renderDashboard(data) {
     </section>`;
 }
 
+function renderDashboardDueResults(rows) {
+  return table(["房源/房间", "应收日", "金额", "状态", "操作"], rows, (r) => `
+    <td><strong>${esc(r.propertyName)} ${esc(r.roomNo)}</strong></td>
+    <td>${esc(r.nextDueDate || "-")}</td>
+    <td>${fmtMoney(r.rentAmount)}</td>
+    <td>${tag(statusText[r.urgency] || "待收", r.urgency === "OVERDUE" ? "danger" : "warn")}</td>
+    <td class="row-actions">${collectButton(r)}</td>`, searchKeyword() ? "没有找到匹配的待收房间" : "暂无待收房间");
+}
+
 function renderProperties(properties, rooms, payments) {
-  const filteredProperties = filterRows(properties, ["name", "address", "district"]);
-  const filteredRooms = filterRows(rooms, ["propertyName", "roomNo", "status", "tags"]);
-  const grouped = filteredProperties.map((property) => ({
-    property,
-    rooms: filteredRooms.filter((room) => Number(room.propertyId) === Number(property.id)),
-  }));
   return `
     <section class="panel toolbar-panel">
-      <div class="panel-head">
-        <h3>房态收租</h3>
-        <div class="panel-tools"><button class="primary" data-form="property">新增房源</button><button class="primary" data-form="room">新增房间</button></div>
-      </div>
       ${searchBox("搜地址、房号、房态")}
     </section>
-    <section class="property-stack">
-      ${grouped.map(({ property, rooms: propertyRooms }, index) => propertyBlock(property, propertyRooms, index)).join("") || empty("暂无房源")}
+    <section class="property-stack" id="propertySearchResults">
+      ${renderPropertySearchResults(properties, rooms)}
     </section>
     ${renderPaymentRecords(payments)}`;
 }
 
-function propertyBlock(property, rooms, index) {
+function renderPropertySearchResults(properties, rooms) {
+  const keyword = searchKeyword();
+  const grouped = properties.slice().sort(comparePropertiesByPinyin).map((property) => {
+    const propertyRooms = rooms.filter((room) => Number(room.propertyId) === Number(property.id));
+    if (!keyword) return { property, rooms: propertyRooms };
+
+    const propertyMatches = matchesSearchValues(
+      [property.name, property.address, property.district, propertyTitle(property)],
+      keyword,
+    );
+    const matchingRooms = propertyRooms.filter((room) => roomMatchesSearch(room, keyword));
+    if (!propertyMatches && matchingRooms.length === 0) return null;
+    return { property, rooms: propertyMatches ? propertyRooms : matchingRooms };
+  }).filter(Boolean).map(({ property, rooms: propertyRooms }) => ({
+    property,
+    rooms: propertyRooms,
+    initial: propertyAlphabetInitial(propertyTitle(property)),
+  }));
+
+  return grouped.map(({ property, rooms: propertyRooms, initial }, index) => propertyBlock(property, propertyRooms, index, initial, Boolean(keyword))).join("")
+    || empty("暂无房源");
+}
+
+function propertyBlock(property, rooms, index, initial, forceExpanded = false) {
   const summary = roomSummary(rooms);
-  const expanded = isPropertyExpanded(property, rooms);
+  const expanded = forceExpanded || isPropertyExpanded(property, rooms);
   const dueCount = rooms.filter((room) => collectInfo(room).enabled).length;
-  return `<section class="property-group property-tone-${index % 4} ${expanded ? "expanded" : "collapsed"}">
+  return `<section class="property-group property-tone-${index % 4} ${expanded ? "expanded" : "collapsed"}" data-property-context-index="${index + 1}" data-property-context-label="${esc(propertyTitle(property))}" data-property-initial="${initial}">
     <div class="property-head">
       <button class="property-title property-toggle" data-toggle-property="${property.id}" aria-expanded="${expanded}">
         <span class="property-index">${index + 1}</span>
@@ -382,7 +631,7 @@ function propertyBlock(property, rooms, index) {
         ${tag(`房间 ${rooms.length}`, "gray")}
         ${tag(`已租 ${summary.rented}`, "")}
         ${tag(`空置 ${summary.vacant}`, "blue")}
-        ${dueCount ? tag(`待收 ${dueCount}`, "warn") : ""}
+        ${dueCount ? tag(`待收 ${dueCount}`, "property-due") : ""}
       </div>
       <div class="panel-tools property-actions">
         <button class="mini primary" data-form="room" data-property-id="${property.id}">加房间</button>
@@ -480,7 +729,7 @@ const formDefs = {
     tip: "房号、月租、押金先填好；出租以后就在房间上直接收租。",
     path: (ctx) => ctx.id ? `/api/properties/rooms/${ctx.id}` : "/api/properties/rooms",
     method: (ctx) => ctx.id ? "PUT" : "POST",
-    fields: [["propertyId", "所属房源", "select", "properties"], ["roomNo", "房号"], ["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["status", "房态", "select", ["VACANT", "RESERVED", "RENTED", "MAINTENANCE", "OFFLINE"]], ["payCycleMonths", "几个月一收", "number", null, "1"], ["nextDueDate", "下次应收日", "date"], ["notes", "备注", "textarea"]],
+    fields: [["propertyId", "所属房源", "select", "properties"], ["roomNo", "房号"], ["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["notes", "备注", "textarea"]],
   },
   rent: {
     title: "出租/收租设置",
@@ -544,8 +793,11 @@ function updateImageDialog(room = findRecord("room", state.imageRoomId)) {
   $("#imagePickHint").textContent = pending ? "确认预览没问题后，点下方保存图片" : "支持 JPG、PNG、WEBP，单张不超过 5MB";
   $("#imagePendingNote").hidden = !pending;
   $("#deleteImageBtn").disabled = !room.imageId || state.imageUploading;
+  $("#deleteImageBtn").textContent = state.imageUploading && state.imageAction === "delete" ? "删除中..." : "删除图片";
   $("#uploadImageBtn").disabled = state.imageUploading || !pending;
-  $("#uploadImageBtn").textContent = state.imageUploading ? "保存中..." : pending ? "保存图片" : "先选图片";
+  $("#uploadImageBtn").textContent = state.imageUploading && state.imageAction === "upload"
+    ? "保存中..."
+    : pending ? "保存图片" : "先选图片";
 }
 
 function applyRoomImage(roomId, image) {
@@ -586,6 +838,7 @@ function previewSelectedRoomImage() {
 }
 
 async function uploadRoomImage() {
+  if (state.imageUploading) return;
   const roomId = state.imageRoomId;
   const file = $("#roomImageInput").files?.[0];
   if (!roomId) return showToast("房间不存在");
@@ -595,6 +848,7 @@ async function uploadRoomImage() {
   const formData = new FormData();
   formData.append("file", file);
   state.imageUploading = true;
+  state.imageAction = "upload";
   updateImageDialog();
   try {
     const image = await apiForm(`/api/properties/rooms/${roomId}/images`, formData);
@@ -608,14 +862,19 @@ async function uploadRoomImage() {
     showToast(error.message);
   } finally {
     state.imageUploading = false;
+    state.imageAction = "";
     updateImageDialog();
   }
 }
 
 async function deleteRoomImage() {
+  if (state.imageUploading) return;
   const roomId = state.imageRoomId;
   const room = findRecord("room", roomId);
   if (!room.id || !room.imageId) return showToast("当前房间没有图片");
+  state.imageUploading = true;
+  state.imageAction = "delete";
+  updateImageDialog(room);
   try {
     await api(`/api/properties/rooms/${roomId}/images/${room.imageId}`, { method: "DELETE" });
     applyRoomImage(roomId, null);
@@ -626,6 +885,10 @@ async function deleteRoomImage() {
     updateImageDialog(findRecord("room", roomId));
   } catch (error) {
     showToast(error.message);
+  } finally {
+    state.imageUploading = false;
+    state.imageAction = "";
+    updateImageDialog();
   }
 }
 
@@ -678,7 +941,7 @@ function validateFormPayload(type, payload) {
   if (!parseDate(start) || !parseDate(end) || !parseDate(nextDue)) return "请填写正确的租期和应收日期";
   if (end < start) return "租期结束日期不能早于开始日期";
   if (nextDue < start || nextDue > end) return "下次应收日必须在租期范围内";
-  if (addMonthsMinusDay(start, cycle) > end) return "几个月一收不能超过租期长度";
+  if (addMonthsMinusDay(nextDue, cycle) > end) return "从下次应收日起，本次收租周期不能超过租期结束日期";
   return "";
 }
 
@@ -687,7 +950,6 @@ function collectInfo(room) {
   const id = room.id || room.roomId;
   const months = Number(room.payCycleMonths || 1);
   if (!id) return { enabled: false, reason: "房间不存在" };
-  if (room.lastPaidDate === today()) return { enabled: false, reason: "今天已登记过收租", label: "已收" };
   if (!due) return { enabled: false, reason: "先设置应收日", label: "未设置" };
   const advanceDays = rentCollectAdvanceDays();
   if (due > addDays(today(), advanceDays)) {
@@ -832,11 +1094,9 @@ function syncRentDateDefaults(event) {
   const start = $("#modalForm [name='leaseStartDate']");
   const end = $("#modalForm [name='leaseEndDate']");
   const nextDue = $("#modalForm [name='nextDueDate']");
-  const cycle = $("#modalForm [name='payCycleMonths']");
   if (!start?.value) return;
   if (event?.target === start && !nextDue.value) nextDue.value = start.value;
   if (event?.target === start && !end.value) end.value = addMonthsMinusDay(start.value, 12);
-  if (event?.target === cycle && Number(cycle.value || 0) < 1) cycle.value = 1;
 }
 
 function findRecord(type, id) {
@@ -867,14 +1127,75 @@ async function togglePayments() {
 }
 
 function filterDueRows(rows) {
-  if (state.filter === "overdue") return rows.filter((row) => row.urgency === "OVERDUE");
-  return rows;
+  const urgencyRows = state.filter === "overdue"
+    ? rows.filter((row) => row.urgency === "OVERDUE")
+    : rows;
+  return filterRows(urgencyRows, ["propertyName", "roomNo", "nextDueDate"]);
+}
+
+function searchKeyword() {
+  return (state.keyword || "").trim().toLowerCase();
+}
+
+function matchesSearchValues(values, keyword = searchKeyword()) {
+  if (!keyword) return true;
+  return values.some((value) => String(value || "").toLowerCase().includes(keyword));
+}
+
+function roomMatchesSearch(room, keyword = searchKeyword()) {
+  let rentState = "";
+  if (room.status === "RENTED") {
+    if (!room.nextDueDate) rentState = "未设置应收日";
+    else if (room.nextDueDate < today()) rentState = "逾期 逾期未收";
+    else if (room.nextDueDate <= addDays(today(), 7)) rentState = "待收 近期应收";
+    else rentState = "正常";
+  }
+  return matchesSearchValues([
+    room.propertyName,
+    room.roomNo,
+    room.status,
+    statusText[room.status],
+    roomStatusSearchTerms[room.status],
+    rentState,
+    room.nextDueDate,
+    room.tags,
+  ], keyword);
 }
 
 function filterRows(rows, keys) {
-  const keyword = (state.keyword || "").trim().toLowerCase();
+  const keyword = searchKeyword();
   if (!keyword) return rows;
-  return rows.filter((row) => keys.some((key) => String(row[key] || "").toLowerCase().includes(keyword)));
+  return rows.filter((row) => matchesSearchValues(keys.map((key) => row[key]), keyword));
+}
+
+function renderSearchResults() {
+  if (state.view === "dashboard") {
+    const data = state.data.dashboard || demo.dashboard;
+    const allDueRows = data.dueRent || [];
+    const dueRows = filterDueRows(allDueRows);
+    const count = $("#dashboardDueCount");
+    const results = $("#dashboardDueResults");
+    if (count) count.textContent = searchKeyword() ? `找到 ${dueRows.length} 间` : `待收 ${allDueRows.length} 间`;
+    if (results) results.innerHTML = renderDashboardDueResults(dueRows);
+    return;
+  }
+
+  if (state.view === "properties") {
+    const results = $("#propertySearchResults");
+    if (!results) return;
+    results.innerHTML = renderPropertySearchResults(
+      state.data.properties || demo.properties,
+      state.data.rooms || demo.rooms,
+    );
+    renderPropertyAlphabet();
+    scheduleRoomImages();
+    schedulePropertyContextSync();
+  }
+}
+
+function scheduleSearchResultsRender() {
+  window.cancelAnimationFrame(scheduleSearchResultsRender.frame);
+  scheduleSearchResultsRender.frame = window.requestAnimationFrame(renderSearchResults);
 }
 
 function propertyTitle(record) {
@@ -890,8 +1211,8 @@ function roomSummary(rooms) {
 
 function dueTag(room) {
   if (!room.nextDueDate) return tag("未设置应收日", "warn");
-  if (room.nextDueDate < today()) return tag("逾期未收", "danger");
-  if (room.nextDueDate <= addDays(today(), 7)) return tag("近期应收", "warn");
+  if (room.nextDueDate < today()) return tag("逾期未收", "danger room-overdue");
+  if (room.nextDueDate <= addDays(today(), 7)) return tag("近期应收", "warn room-due-soon");
   return tag("正常", "blue");
 }
 
@@ -907,11 +1228,11 @@ function roomMiniCard(room) {
 }
 
 function searchBox(placeholder) {
-  return `<div class="searchbar"><input id="keyword" value="${esc(state.keyword || "")}" placeholder="${placeholder}" data-search><button class="ghost" data-clear-search>清空</button></div>`;
+  return `<div class="searchbar"><input id="keyword" type="search" value="${esc(state.keyword || "")}" placeholder="${placeholder}" autocomplete="off" enterkeyhint="search" data-search><button class="ghost" data-clear-search>清空</button></div>`;
 }
 
-function table(heads, rows, cells) {
-  if (!rows || rows.length === 0) return empty("暂无数据");
+function table(heads, rows, cells, emptyText = "暂无数据") {
+  if (!rows || rows.length === 0) return empty(emptyText);
   return `<div class="table-wrap"><table><thead><tr>${heads.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((row) => `<tr>${labelCells(cells(row), heads)}</tr>`).join("")}</tbody></table></div>`;
 }
 
@@ -941,18 +1262,45 @@ function showToast(message) {
 }
 
 function setBusy(busy) {
-  const refresh = $("#refreshBtn");
-  if (refresh) {
+  [$("#refreshBtn"), $("#mobileRefreshBtn")].forEach((refresh) => {
+    if (!refresh) return;
     refresh.disabled = busy;
     refresh.textContent = busy ? "刷新中..." : "刷新";
-  }
+  });
 }
 
 function setFormBusy(busy) {
   const submit = $("#modalForm button[type='submit']");
-  if (submit) {
-    submit.disabled = busy;
-    submit.textContent = busy ? "保存中..." : "保存";
+  setButtonLoading(submit, busy, "保存中...");
+}
+
+function setButtonLoading(button, busy, loadingText = "处理中...") {
+  if (!button) return;
+  if (busy) {
+    if (button.dataset.loading === "true") return;
+    button.dataset.loading = "true";
+    button.dataset.idleText = button.textContent;
+    button.disabled = true;
+    button.classList.add("is-loading");
+    button.setAttribute("aria-busy", "true");
+    button.textContent = loadingText;
+    return;
+  }
+  button.disabled = false;
+  button.classList.remove("is-loading");
+  button.removeAttribute("aria-busy");
+  if (button.dataset.idleText) button.textContent = button.dataset.idleText;
+  delete button.dataset.loading;
+  delete button.dataset.idleText;
+}
+
+async function runButtonAction(button, action, loadingText = "处理中...") {
+  if (!button || button.dataset.loading === "true" || typeof action !== "function") return;
+  setButtonLoading(button, true, loadingText);
+  try {
+    await action();
+  } finally {
+    setButtonLoading(button, false);
   }
 }
 
@@ -968,6 +1316,7 @@ function closeImageDialog() {
   resetPendingImage();
   state.imageRoomId = null;
   state.imageUploading = false;
+  state.imageAction = "";
 }
 
 function closeConfirm() {
@@ -975,24 +1324,46 @@ function closeConfirm() {
   closeDialog($("#confirmDialog"));
 }
 
-function goView(view) {
+function resetViewScroll() {
+  window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  document.documentElement.scrollTop = 0;
+  document.body.scrollTop = 0;
+}
+
+async function goView(view) {
+  if (state.view === view) return;
+  resetViewScroll();
   state.view = view;
   state.keyword = "";
   state.filter = "all";
+  const nav = $(".nav");
+  nav.classList.remove("nav-flowing");
+  void nav.offsetWidth;
+  nav.dataset.activeView = view;
+  nav.classList.add("nav-flowing");
   document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === view));
-  load();
+  await load();
+  window.requestAnimationFrame(() => {
+    resetViewScroll();
+    schedulePropertyContextSync();
+  });
 }
 
 document.querySelectorAll(".nav-item").forEach((button) => button.addEventListener("click", () => goView(button.dataset.view)));
 $("#refreshBtn").addEventListener("click", load);
-$("#quickAddBtn").addEventListener("click", () => openForm(state.view === "properties" ? "room" : "property"));
+$("#mobileRefreshBtn").addEventListener("click", load);
+$("#propertyAddBtn").addEventListener("click", () => openForm("property"));
+$("#quickAddBtn").addEventListener("click", () => openForm("room"));
 $("#modalForm").addEventListener("submit", submitForm);
 $("#modalForm").addEventListener("input", syncRentDateDefaults);
 document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModal));
 document.querySelectorAll("[data-cancel-confirm]").forEach((button) => button.addEventListener("click", closeConfirm));
 document.querySelectorAll("[data-close-image]").forEach((button) => button.addEventListener("click", closeImageDialog));
 document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("close", unlockPageScrollIfIdle));
-$("#confirmOkBtn").addEventListener("click", () => state.pendingConfirm?.());
+$("#confirmOkBtn").addEventListener("click", (event) => {
+  const action = state.pendingConfirm;
+  return runButtonAction(event.currentTarget, action);
+});
 $("#uploadImageBtn").addEventListener("click", uploadRoomImage);
 $("#deleteImageBtn").addEventListener("click", deleteRoomImage);
 $("#roomImageInput").addEventListener("change", previewSelectedRoomImage);
@@ -1024,15 +1395,19 @@ $("#content").addEventListener("click", (event) => {
   }
   if (event.target.closest("[data-clear-search]")) {
     state.keyword = "";
-    render();
+    const input = $("#keyword");
+    if (input) {
+      input.value = "";
+      input.focus({ preventScroll: true });
+    }
+    scheduleSearchResultsRender();
   }
 });
 
 $("#content").addEventListener("input", (event) => {
-  if (!event.target.matches("[data-search]") || state.composing) return;
+  if (!event.target.matches("[data-search]") || state.composing || event.isComposing) return;
   state.keyword = event.target.value;
-  render();
-  $("#keyword")?.focus();
+  scheduleSearchResultsRender();
 });
 
 $("#content").addEventListener("compositionstart", (event) => {
@@ -1043,7 +1418,44 @@ $("#content").addEventListener("compositionend", (event) => {
   if (!event.target.matches("[data-search]")) return;
   state.composing = false;
   state.keyword = event.target.value;
-  render();
+  scheduleSearchResultsRender();
 });
 
+window.addEventListener("scroll", schedulePropertyContextSync, { passive: true });
+window.addEventListener("resize", schedulePropertyContextSync, { passive: true });
+$("#propertyAlphabetIndex").addEventListener("pointerdown", (event) => {
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  const letter = propertyLetterAtPoint(event.clientX, event.clientY);
+  if (!letter) return;
+  propertyAlphabetDragging = true;
+  $("#propertyAlphabetIndex").setPointerCapture?.(event.pointerId);
+  if (letter === PROPERTY_SEARCH_TARGET) jumpToPropertySearch(false);
+  else jumpToPropertyLetter(letter);
+  event.preventDefault();
+});
+$("#propertyAlphabetIndex").addEventListener("pointermove", (event) => {
+  if (!propertyAlphabetDragging) return;
+  const letter = propertyLetterAtPoint(event.clientX, event.clientY);
+  if (letter === PROPERTY_SEARCH_TARGET) jumpToPropertySearch(false);
+  else if (letter && $("#propertyAlphabetPreview").textContent !== letter) jumpToPropertyLetter(letter);
+  event.preventDefault();
+});
+$("#propertyAlphabetIndex").addEventListener("pointerup", finishPropertyAlphabetDrag);
+$("#propertyAlphabetIndex").addEventListener("pointercancel", finishPropertyAlphabetDrag);
+window.addEventListener("pointerup", finishPropertyAlphabetDrag);
+window.addEventListener("pointercancel", finishPropertyAlphabetDrag);
+document.addEventListener("pointerdown", (event) => {
+  if (!event.target.closest("#propertyAlphabetIndex")) hidePropertyAlphabetPreview();
+});
+window.addEventListener("scroll", () => {
+  const previewAge = Date.now() - propertyAlphabetPreviewShownAt;
+  if (!propertyAlphabetDragging && previewAge > 300) hidePropertyAlphabetPreview();
+}, { passive: true });
+window.addEventListener("blur", hidePropertyAlphabetPreview);
+$("#propertyAlphabetIndex").addEventListener("click", (event) => {
+  if (event.detail !== 0) return;
+  if (event.target.closest("[data-property-search]")) return jumpToPropertySearch(true);
+  const letter = event.target.closest("[data-property-letter]")?.dataset.propertyLetter;
+  if (letter) jumpToPropertyLetter(letter, true);
+});
 loadRuntimeConfig().finally(load);

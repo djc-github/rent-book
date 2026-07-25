@@ -1,6 +1,7 @@
 package com.djc.rentbook.contract;
 
 import com.djc.rentbook.common.ApiResponse;
+import com.djc.rentbook.mutation.MutationOperation;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import org.springframework.web.bind.annotation.*;
@@ -23,41 +24,48 @@ public class ContractController {
     }
 
     @PostMapping
+    @MutationOperation(module = "合同", action = "新增合同")
     public ApiResponse<Map<String, Long>> create(@Valid @RequestBody ContractDtos.ContractRequest request) {
         return ApiResponse.ok(Map.of("id", service.create(request)));
     }
 
     @PatchMapping("/{id}/status")
+    @MutationOperation(module = "合同", action = "修改合同状态")
     public ApiResponse<Void> updateStatus(@PathVariable Long id, @Valid @RequestBody StatusRequest request) {
         service.updateStatus(id, request.status());
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/{id}/terminate")
+    @MutationOperation(module = "合同", action = "提前终止合同")
     public ApiResponse<Void> terminate(@PathVariable Long id, @Valid @RequestBody ContractDtos.TerminateRequest request) {
         service.terminate(id, request);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/{id}/transfer")
+    @MutationOperation(module = "合同", action = "合同转租")
     public ApiResponse<Void> transfer(@PathVariable Long id, @Valid @RequestBody ContractDtos.TransferRequest request) {
         service.transfer(id, request);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/{id}/change-room")
+    @MutationOperation(module = "合同", action = "合同换房")
     public ApiResponse<Void> changeRoom(@PathVariable Long id, @Valid @RequestBody ContractDtos.ChangeRoomRequest request) {
         service.changeRoom(id, request);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/{id}/renew")
+    @MutationOperation(module = "合同", action = "合同续租")
     public ApiResponse<Void> renew(@PathVariable Long id, @Valid @RequestBody ContractDtos.RenewRequest request) {
         service.renew(id, request);
         return ApiResponse.ok(null);
     }
 
     @DeleteMapping("/{id}")
+    @MutationOperation(module = "合同", action = "删除合同")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok(null);

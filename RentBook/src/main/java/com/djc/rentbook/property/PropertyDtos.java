@@ -1,7 +1,11 @@
 package com.djc.rentbook.property;
 
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.PastOrPresent;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 
 import java.math.BigDecimal;
@@ -27,8 +31,8 @@ public final class PropertyDtos {
             @NotBlank String roomNo,
             String floor,
             @PositiveOrZero BigDecimal area,
-            @PositiveOrZero BigDecimal rentAmount,
-            @PositiveOrZero BigDecimal depositAmount,
+            @NotNull @Positive @Digits(integer = 10, fraction = 2) BigDecimal rentAmount,
+            @NotNull @PositiveOrZero @Digits(integer = 10, fraction = 2) BigDecimal depositAmount,
             String status,
             Integer payCycleMonths,
             LocalDate nextDueDate,
@@ -40,9 +44,9 @@ public final class PropertyDtos {
     public record RoomStatusRequest(@NotBlank String status) {}
 
     public record RoomRentRequest(
-            @PositiveOrZero BigDecimal rentAmount,
-            @PositiveOrZero BigDecimal depositAmount,
-            @NotNull Integer payCycleMonths,
+            @NotNull @Positive @Digits(integer = 10, fraction = 2) BigDecimal rentAmount,
+            @NotNull @PositiveOrZero @Digits(integer = 10, fraction = 2) BigDecimal depositAmount,
+            @NotNull @Min(1) Integer payCycleMonths,
             @NotNull LocalDate leaseStartDate,
             @NotNull LocalDate leaseEndDate,
             @NotNull LocalDate nextDueDate,
@@ -50,9 +54,9 @@ public final class PropertyDtos {
     ) {}
 
     public record RoomCollectRentRequest(
-            Integer months,
-            LocalDate paidDate,
-            BigDecimal amount,
+            @Min(1) Integer months,
+            @PastOrPresent LocalDate paidDate,
+            @Positive @Digits(integer = 10, fraction = 2) BigDecimal amount,
             String method,
             String notes
     ) {}

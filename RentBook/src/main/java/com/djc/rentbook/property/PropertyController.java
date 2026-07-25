@@ -1,6 +1,7 @@
 package com.djc.rentbook.property;
 
 import com.djc.rentbook.common.ApiResponse;
+import com.djc.rentbook.mutation.MutationOperation;
 import com.djc.rentbook.roomimage.RoomImageService;
 import jakarta.validation.Valid;
 import org.springframework.web.multipart.MultipartFile;
@@ -36,53 +37,63 @@ public class PropertyController {
     }
 
     @PostMapping
+    @MutationOperation(module = "房源", action = "新增房源")
     public ApiResponse<Map<String, Long>> create(@Valid @RequestBody PropertyDtos.PropertyCreateRequest request) {
         return ApiResponse.ok(Map.of("id", service.create(request)));
     }
 
     @PutMapping("/{id}")
+    @MutationOperation(module = "房源", action = "修改房源")
     public ApiResponse<Void> update(@PathVariable Long id, @Valid @RequestBody PropertyDtos.PropertyCreateRequest request) {
         service.update(id, request);
         return ApiResponse.ok(null);
     }
 
     @DeleteMapping("/{id}")
+    @MutationOperation(module = "房源", action = "删除房源")
     public ApiResponse<Void> delete(@PathVariable Long id) {
         service.delete(id);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/rooms")
+    @MutationOperation(module = "房间", action = "新增房间")
     public ApiResponse<Map<String, Long>> createRoom(@Valid @RequestBody PropertyDtos.RoomCreateRequest request) {
         return ApiResponse.ok(Map.of("id", service.createRoom(request)));
     }
 
     @PutMapping("/rooms/{roomId}")
+    @MutationOperation(module = "房间", action = "修改房间")
     public ApiResponse<Void> updateRoom(@PathVariable Long roomId, @Valid @RequestBody PropertyDtos.RoomCreateRequest request) {
         service.updateRoom(roomId, request);
         return ApiResponse.ok(null);
     }
 
     @DeleteMapping("/rooms/{roomId}")
+    @MutationOperation(module = "房间", action = "删除房间")
     public ApiResponse<Void> deleteRoom(@PathVariable Long roomId) {
         service.deleteRoom(roomId);
         return ApiResponse.ok(null);
     }
 
     @PatchMapping("/rooms/{roomId}/status")
+    @MutationOperation(module = "房间", action = "修改房态")
     public ApiResponse<Void> updateRoomStatus(@PathVariable Long roomId, @Valid @RequestBody PropertyDtos.RoomStatusRequest request) {
         service.updateRoomStatus(roomId, request.status());
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/rooms/{roomId}/rent")
+    @MutationOperation(module = "房间", action = "设置出租与收租规则")
     public ApiResponse<Void> startRoomRent(@PathVariable Long roomId, @Valid @RequestBody PropertyDtos.RoomRentRequest request) {
         service.startRoomRent(roomId, request);
         return ApiResponse.ok(null);
     }
 
     @PostMapping("/rooms/{roomId}/collect")
-    public ApiResponse<Map<String, Long>> collectRoomRent(@PathVariable Long roomId, @RequestBody PropertyDtos.RoomCollectRentRequest request) {
+    @MutationOperation(module = "收租", action = "登记收租")
+    public ApiResponse<Map<String, Long>> collectRoomRent(@PathVariable Long roomId,
+                                                          @Valid @RequestBody PropertyDtos.RoomCollectRentRequest request) {
         return ApiResponse.ok(Map.of("id", service.collectRoomRent(roomId, request)));
     }
 
@@ -92,11 +103,13 @@ public class PropertyController {
     }
 
     @PostMapping("/rooms/{roomId}/images")
+    @MutationOperation(module = "房间图片", action = "上传或替换图片")
     public ApiResponse<Map<String, Object>> replaceRoomImage(@PathVariable Long roomId, @RequestParam("file") MultipartFile file) {
         return ApiResponse.ok(roomImageService.replace(roomId, file));
     }
 
     @DeleteMapping("/rooms/{roomId}/images/{imageId}")
+    @MutationOperation(module = "房间图片", action = "删除图片")
     public ApiResponse<Void> deleteRoomImage(@PathVariable Long roomId, @PathVariable Long imageId) {
         roomImageService.delete(roomId, imageId);
         return ApiResponse.ok(null);
