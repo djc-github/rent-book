@@ -57,7 +57,7 @@ public class PaymentService {
                 roomId, null, request.periodStart(), request.periodEnd(), null
         );
         if (overlappingId != null) {
-            throw new IllegalArgumentException("该房间对应租期已经登记过收租，请勿重复提交");
+            throw new IllegalArgumentException("这段租期已经登记过收租，请勿重复操作");
         }
         PaymentRecord record = new PaymentRecord();
         record.setContractId(request.contractId());

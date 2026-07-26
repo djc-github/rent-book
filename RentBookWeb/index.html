@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小胡收租簿</title>
-  <link rel="stylesheet" href="./assets/app.css?v=20260726-1">
+  <link rel="stylesheet" href="./assets/app.css?v=20260726-2">
 </head>
 <body>
   <aside class="sidebar">
@@ -12,7 +12,7 @@
       <span class="brand-mark">胡</span>
       <div>
         <strong>小胡收租簿</strong>
-        <small>房态收租工作台</small>
+        <small>滨湖最美美少女专用</small>
       </div>
       <button class="mobile-refresh" id="mobileRefreshBtn" type="button" aria-label="刷新当前页面" title="刷新当前页面">刷新</button>
     </div>
@@ -87,12 +87,12 @@
       </header>
       <div class="due-date-body">
         <div class="due-date-summary">
-          <span><small>当前收租日</small><strong id="dueCurrentDate">-</strong></span>
-          <span><small>下一笔覆盖</small><strong id="dueLatestCoveredDate">-</strong></span>
+          <span><small>当前下次收租日</small><strong id="dueCurrentDate">-</strong></span>
+          <span><small>下次租金从</small><strong id="dueLatestCoveredDate">-</strong></span>
         </div>
 
         <div class="field required">
-          <label for="dueNewDate">新的计划收租日</label>
+          <label for="dueNewDate">新的下次收租日</label>
           <input id="dueNewDate" name="nextDueDate" type="date" required>
         </div>
 
@@ -130,7 +130,7 @@
         <button type="button" class="icon-btn" data-close-settlement aria-label="关闭">×</button>
       </header>
       <div class="settlement-body">
-        <p class="settlement-intro">仅在租客退房时使用。完成后房间自动变为空置，原收租记录会完整保留。</p>
+        <p class="settlement-intro">仅在租客退房时使用。退租完成后房间会变为空置，以前的收租记录仍可查看。</p>
 
         <div class="field required">
           <label for="settlementMoveOutDate">实际退租日期</label>
@@ -138,7 +138,7 @@
         </div>
 
         <div id="settlementSummary" class="settlement-summary" aria-live="polite">
-          <span><small>剩余租金建议退</small><strong id="settlementSuggestedRent">计算中</strong></span>
+          <span><small>建议退还租金</small><strong id="settlementSuggestedRent">正在计算...</strong></span>
           <span><small>当前押金</small><strong id="settlementDeposit">-</strong></span>
         </div>
 
@@ -204,6 +204,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="./assets/app.js?v=20260726-1"></script>
+  <script type="module" src="./assets/app.js?v=20260726-2"></script>
 </body>
 </html>

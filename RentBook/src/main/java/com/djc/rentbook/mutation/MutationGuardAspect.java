@@ -115,14 +115,14 @@ public class MutationGuardAspect {
                 throw new IllegalStateException("幂等记录读取失败，请稍后重试");
             }
             if (!existing.getRequestHash().equals(snapshot.requestHash())) {
-                throw new IllegalArgumentException("同一个操作标识不能提交不同内容，请刷新后重试");
+                throw new IllegalArgumentException("页面内容已经变化，请刷新后重新操作");
             }
             if ("SUCCEEDED".equals(existing.getStatus()) && existing.getExpiresAt().isAfter(now)) {
                 return new GuardResult(deserializeResponse(joinPoint, existing.getResponsePayload()),
                         existing.getResponsePayload(), true);
             }
             if ("PROCESSING".equals(existing.getStatus()) && existing.getExpiresAt().isAfter(now)) {
-                throw new IllegalArgumentException("操作正在处理中，请勿重复提交");
+                throw new IllegalArgumentException("正在处理，请稍候");
             }
             mapper.restartIdempotency(
                     snapshot.idempotencyKey(), snapshot.requestHash(), snapshot.httpMethod(),
@@ -154,7 +154,7 @@ public class MutationGuardAspect {
         String requestHash = sha256(method + "|" + path + "|" + requestPayload);
         String clientValue = trimToNull(request.getHeader(IDEMPOTENCY_HEADER));
         if (clientValue != null && clientValue.length() > MAX_CLIENT_KEY_LENGTH) {
-            throw new IllegalArgumentException("操作标识过长");
+            throw new IllegalArgumentException("操作没有提交成功，请刷新后重试");
         }
         boolean clientKey = clientValue != null;
         String rawKey = clientKey

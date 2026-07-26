@@ -21,6 +21,7 @@ const state = {
   settlementRoomId: null,
   settlementPreview: null,
   settlementPreviewRequest: 0,
+  loadErrors: {},
 };
 
 const roomImageLoader = {
@@ -146,7 +147,11 @@ const addDays = (value, days) => {
   date.setDate(date.getDate() + Number(days || 0));
   return toYmd(date);
 };
-const runtimeConfig = { apiBaseUrl: window.location.origin, rentCollectAdvanceDays: 7 };
+const runtimeConfig = {
+  apiBaseUrl: window.location.origin,
+  rentCollectAdvanceDays: 7,
+  allowDemoData: false,
+};
 const apiBase = () => runtimeConfig.apiBaseUrl.replace(/\/$/, "");
 const rentCollectAdvanceDays = () => Math.max(0, Number(runtimeConfig.rentCollectAdvanceDays || 7));
 const toCamel = (key) => key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
@@ -155,6 +160,52 @@ const normalize = (value) => {
   if (!value || typeof value !== "object") return value;
   return Object.fromEntries(Object.entries(value).map(([key, item]) => [toCamel(key), normalize(item)]));
 };
+
+const userFieldLabels = {
+  address: "房源地址",
+  propertyId: "所属房源",
+  roomNo: "房号",
+  rentAmount: "月租金",
+  depositAmount: "押金",
+  leaseStartDate: "租期开始日期",
+  leaseEndDate: "租期结束日期",
+  nextDueDate: "下次收租日",
+  payCycleMonths: "几个月一收",
+  moveOutDate: "实际退租日期",
+  rentRefundAmount: "实际退还租金",
+  depositDeductionAmount: "押金扣款",
+  reason: "原因",
+  notes: "补充说明",
+};
+
+function friendlyMessage(message, status = 0) {
+  let text = String(message || "").trim();
+  if (!text) return status >= 500 ? "系统开小差了，请稍后再试" : "操作没有完成，请稍后再试";
+  if (/failed to fetch|networkerror|load failed|network request failed/i.test(text)) {
+    return "暂时无法连接，请检查网络后重试";
+  }
+  if (/invalid payment cursor/i.test(text)) return "收租记录加载失败，请刷新后重试";
+  if (/当前出租轮次缺失|数据库升级脚本/.test(text)) {
+    return "这间房的出租信息不完整，请暂停操作并联系维护人员";
+  }
+  if (/幂等|序列化|请求摘要|写操作未返回|不在HTTP请求|traceId/i.test(text)) {
+    return "操作没有完成，请稍后再试";
+  }
+  if (/^请求失败（\d+）$/.test(text)) return "操作没有完成，请稍后再试";
+  if (text === "数据库操作失败，请稍后重试") return "操作没有保存成功，请稍后再试";
+  if (text === "请求地址不存在") return "当前功能暂时不可用，请刷新后再试";
+  if (text === "系统开小差了，请查看后端日志") return "系统开小差了，请稍后再试";
+  Object.entries(userFieldLabels).some(([field, label]) => {
+    const prefix = `${field}:`;
+    if (!text.startsWith(prefix)) return false;
+    text = `${label}：${text.slice(prefix.length).trim()}`;
+    return true;
+  });
+  if (status >= 500 && !["操作没有保存成功，请稍后再试", "系统开小差了，请稍后再试"].includes(text)) {
+    return "系统开小差了，请稍后再试";
+  }
+  return text;
+}
 
 function createIdempotencyKey() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
@@ -188,8 +239,16 @@ function requestApi(path, options = {}, signatureBody = "") {
   const request = fetch(`${apiBase()}${path}`, { ...options, method, headers })
     .then(async (response) => {
       const body = await response.json().catch(() => null);
-      if (!response.ok || !body?.success) throw new Error(body?.message || `请求失败（${response.status}）`);
+      if (!response.ok || !body?.success) {
+        const error = new Error(friendlyMessage(body?.message, response.status));
+        error.status = response.status;
+        throw error;
+      }
       return normalize(body.data);
+    })
+    .catch((error) => {
+      if (error instanceof Error) error.message = friendlyMessage(error.message, error.status);
+      throw error;
     })
     .finally(() => {
       if (mutationRequests.get(signature) === request) mutationRequests.delete(signature);
@@ -496,15 +555,28 @@ async function load() {
   try {
     if (state.view === "dashboard") state.data.dashboard = await api("/api/dashboard");
     if (state.view === "properties") await loadProperties();
+    delete state.loadErrors[state.view];
   } catch (error) {
-    state.data[state.view] = demo[state.view];
-    if (state.view === "properties") {
-      state.data.rooms = demo.rooms;
-      state.data.payments = demo.payments;
-      state.paymentsLoaded = true;
-      state.paymentsHasMore = false;
+    state.loadErrors[state.view] = true;
+    if (runtimeConfig.allowDemoData) {
+      state.data[state.view] = demo[state.view];
+      if (state.view === "properties") {
+        state.data.rooms = demo.rooms;
+        state.data.payments = demo.payments;
+        state.paymentsLoaded = true;
+        state.paymentsHasMore = false;
+      }
+      showToast("暂时无法连接，当前显示示例内容");
+    } else {
+      if (state.view === "dashboard") {
+        state.data.dashboard = { summary: {}, dueRent: [], vacantRooms: [] };
+      } else {
+        state.data.properties = [];
+        state.data.rooms = [];
+        state.data.payments = [];
+      }
+      showToast("暂时无法加载数据，请检查网络后重试");
     }
-    showToast(`后端未连接，当前展示演示数据：${error.message}`);
   } finally {
     render();
     setBusy(false);
@@ -542,8 +614,12 @@ async function loadPayments({ reset = false } = {}) {
 }
 
 function render() {
-  if (state.view === "dashboard") $("#content").innerHTML = renderDashboard(state.data.dashboard || demo.dashboard);
-  if (state.view === "properties") $("#content").innerHTML = renderProperties(state.data.properties || demo.properties, state.data.rooms || demo.rooms, state.data.payments || []);
+  if (state.loadErrors[state.view] && !runtimeConfig.allowDemoData) {
+    $("#content").innerHTML = `<section class="panel">${empty("数据暂时无法加载，请点击右上角“刷新”重试")}</section>`;
+  } else {
+    if (state.view === "dashboard") $("#content").innerHTML = renderDashboard(state.data.dashboard || demo.dashboard);
+    if (state.view === "properties") $("#content").innerHTML = renderProperties(state.data.properties || demo.properties, state.data.rooms || demo.rooms, state.data.payments || []);
+  }
   renderPropertyAlphabet();
   scheduleRoomImages();
   schedulePropertyContextSync();
@@ -565,14 +641,14 @@ function renderDashboard(data) {
     : "income-progress";
   return `
     <section class="metrics">
-      ${metric("本月应收进度", monthIncomeProgress, incomeProgressClass)}
+      ${metric("本月已收 / 应收", monthIncomeProgress, incomeProgressClass)}
       ${metric("空置房间 / 总房间", `${s.vacantCount || 0}/${s.roomCount || 0}`, "")}
       ${metric("7天内应收", s.dueSoonCount || 0, "warn")}
       ${metric("逾期未收", s.overdueCount || 0, "danger")}
     </section>
     <section class="panel dashboard-due-panel">
       <div class="panel-head">
-        <div class="panel-title"><h3>该收租的房间</h3><small>点收租后入账</small></div>
+        <div class="panel-title"><h3>该收租的房间</h3><small>收到租金后，点一下“收租”</small></div>
         <span class="tag warn" id="dashboardDueCount">${dueCountText}</span>
       </div>
       ${searchBox("搜房源地址、房号或应收日期")}
@@ -624,7 +700,7 @@ function renderPropertySearchResults(properties, rooms) {
   }));
 
   return grouped.map(({ property, rooms: propertyRooms, initial }, index) => propertyBlock(property, propertyRooms, index, initial, Boolean(keyword))).join("")
-    || empty("暂无房源");
+    || empty(keyword ? "没有找到匹配的房源或房间" : "暂无房源");
 }
 
 function propertyBlock(property, rooms, index, initial, forceExpanded = false) {
@@ -683,7 +759,7 @@ function roomCard(room, propertyTone = 0) {
       <small>${fmtMoney(room.rentAmount)} / 押${Number(room.depositAmount || 0).toLocaleString("zh-CN")}</small>
       ${room.leaseStartDate && room.leaseEndDate ? `<small>租期：${esc(room.leaseStartDate)} 至 ${esc(room.leaseEndDate)}</small>` : ""}
       ${room.nextDueDate ? `<small>下次收租：${esc(room.nextDueDate)}，${room.payCycleMonths || 1}个月一收</small>` : ""}
-      ${room.nextPeriodStartDate && room.nextPeriodStartDate !== room.nextDueDate ? `<small>下一笔覆盖：${esc(room.nextPeriodStartDate)} 起</small>` : ""}
+      ${room.nextPeriodStartDate && room.nextPeriodStartDate !== room.nextDueDate ? `<small>下次租金从：${esc(room.nextPeriodStartDate)} 起</small>` : ""}
     </div>
     <div class="row-actions">
       ${actions}
@@ -699,7 +775,7 @@ function renderPaymentRecords(rows) {
   const expanded = state.paymentsExpanded;
   const latestText = latest
     ? `${latest.paidDate || "-"} · ${propertyTitle(latest)} ${latest.roomNo || ""} · ${fmtMoney(latest.amount)}`
-    : state.paymentsLoaded ? "还没有收租记录" : "点开后加载最近记录";
+    : state.paymentsLoaded ? "暂无收租记录" : "点开查看最近收租";
   const countText = state.paymentsLoaded ? `已加载 ${filtered.length} 笔` : "未加载";
   return `<section class="panel payment-history ${expanded ? "expanded" : "collapsed"}">
     <button class="payment-history-head" data-toggle-payments aria-expanded="${expanded}">
@@ -748,10 +824,10 @@ const formDefs = {
   },
   rent: {
     title: "出租/收租设置",
-    tip: "计划收租日只管提醒；租金覆盖期由系统自动衔接。以后仍然只需点“收租”。",
+    tip: "设置好租期、租金和下次收租日，以后收到钱后点一次“收租”即可。",
     path: (ctx) => `/api/properties/rooms/${ctx.id}/rent`,
     method: () => "POST",
-    fields: [["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["leaseStartDate", "租期开始日期", "date", null, today()], ["leaseEndDate", "租期结束日期", "date"], ["payCycleMonths", "几个月一收", "number", null, "1"], ["nextDueDate", "下次计划收租日", "date"], ["notes", "备注", "textarea"]],
+    fields: [["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["leaseStartDate", "租期开始日期", "date", null, today()], ["leaseEndDate", "租期结束日期", "date"], ["payCycleMonths", "几个月一收", "number", null, "1"], ["nextDueDate", "下次收租日", "date"], ["notes", "备注", "textarea"]],
   },
 };
 
@@ -791,7 +867,7 @@ function renderField(name, type, options, value, required) {
 
 function openImageDialog(roomId) {
   const room = findRecord("room", roomId);
-  if (!room.id) return showToast("房间不存在");
+  if (!room.id) return showToast("这个房间可能已被删除，请刷新后再试");
   state.imageRoomId = Number(roomId);
   resetPendingImage();
   $("#roomImageInput").value = "";
@@ -860,7 +936,7 @@ async function uploadRoomImage() {
   if (state.imageUploading) return;
   const roomId = state.imageRoomId;
   const file = $("#roomImageInput").files?.[0];
-  if (!roomId) return showToast("房间不存在");
+  if (!roomId) return showToast("这个房间可能已被删除，请刷新后再试");
   if (!file) return showToast("请先选择图片");
   const message = validateRoomImageFile(file);
   if (message) return showToast(message);
@@ -873,7 +949,7 @@ async function uploadRoomImage() {
     const image = await apiForm(`/api/properties/rooms/${roomId}/images`, formData);
     applyRoomImage(roomId, image);
     resetPendingImage();
-    showToast("图片已更新");
+    showToast("房间图片已保存");
     $("#roomImageInput").value = "";
     render();
     updateImageDialog(findRecord("room", roomId));
@@ -894,7 +970,7 @@ function renderLockedDueDate(room, value) {
     <div class="due-date-locked">
       <span>
         <strong>${esc(normalizeDate(value) || "-")}</strong>
-        <small>下一笔覆盖从 ${esc(nextPeriodStart || "-")} 开始；修改周期不会改变收租日</small>
+        <small>下次租金从 ${esc(nextPeriodStart || "-")} 开始计算；修改“几个月一收”不会改变下次收租日</small>
       </span>
       <button type="button" class="ghost" data-adjust-due-date="${room.id}">调日期</button>
     </div>`;
@@ -933,7 +1009,10 @@ async function submitForm(event) {
   const payload = Object.fromEntries(new FormData($("#modalForm")).entries());
   if (type === "property" && payload.address && !payload.name) payload.name = payload.address;
   for (const key of requiredFields(type)) {
-    if (!payload[key]) return showToast("请先填写必填项");
+    if (!payload[key]) {
+      const field = def.fields.find(([name]) => name === key);
+      return showToast(`请填写“${field?.[1] || "必填内容"}”`);
+    }
   }
   const validationMessage = validateFormPayload(type, payload, ctx);
   if (validationMessage) return showToast(validationMessage);
@@ -947,7 +1026,10 @@ async function submitForm(event) {
     setFormBusy(true);
     await api(def.path(ctx), { method: def.method(ctx), body: JSON.stringify(payload) });
     closeDialog($("#modal"));
-    showToast(type === "rent" ? "收租规则已保存" : "保存成功");
+    const savedMessage = type === "rent"
+      ? "收租规则已保存"
+      : `${type === "property" ? "房源" : "房间"}${ctx.id ? "信息已更新" : "已新增"}`;
+    showToast(savedMessage);
     await load();
   } catch (error) {
     showToast(error.message);
@@ -970,16 +1052,16 @@ function validateFormPayload(type, payload, ctx = {}) {
   const end = normalizeDate(payload.leaseEndDate);
   const nextDue = normalizeDate(payload.nextDueDate);
   const cycle = Number(payload.payCycleMonths || 1);
-  if (cycle < 1) return "几个月一收至少为1个月";
+  if (cycle < 1) return "收租间隔不能少于1个月";
   if (!parseDate(start) || !parseDate(end) || !parseDate(nextDue)) return "请填写正确的租期和收租日期";
   if (end < start) return "租期结束日期不能早于开始日期";
-  if (nextDue < start || nextDue > end) return "下次计划收租日必须在租期范围内";
+  if (nextDue < start || nextDue > end) return "下次收租日必须在租期范围内";
   const room = ctx.id ? findRecord("room", ctx.id) : {};
   const nextPeriodStart = room.status === "RENTED"
     ? normalizeDate(room.nextPeriodStartDate)
       || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : start)
     : start;
-  if (addMonthsMinusDay(nextPeriodStart, cycle) > end) return "按当前收租周期，下一笔租金覆盖期会超过租期结束日期";
+  if (addMonthsMinusDay(nextPeriodStart, cycle) > end) return "按这个收租间隔，最后一次收租会超出租期结束日期，请缩短间隔或延长租期";
   return "";
 }
 
@@ -987,11 +1069,11 @@ function collectInfo(room) {
   const due = normalizeDate(room.nextDueDate);
   const id = room.id || room.roomId;
   const months = Number(room.payCycleMonths || 1);
-  if (!id) return { enabled: false, reason: "房间不存在" };
+  if (!id) return { enabled: false, reason: "这个房间可能已被删除，请刷新后再试" };
   if (!due) return { enabled: false, reason: "先设置收租日", label: "未设置" };
   const advanceDays = rentCollectAdvanceDays();
   if (due > addDays(today(), advanceDays)) {
-    return { enabled: false, reason: `计划收租日前${advanceDays}天内才能收租`, label: "未到期" };
+    return { enabled: false, reason: `距离收租日还早，提前${advanceDays}天时才能登记`, label: "未到期" };
   }
   const periodStart = normalizeDate(room.nextPeriodStartDate)
     || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : "")
@@ -1002,7 +1084,7 @@ function collectInfo(room) {
     return { enabled: false, reason: "租期已结束", label: "已到期" };
   }
   if (room.leaseEndDate && periodEnd > room.leaseEndDate) {
-    return { enabled: false, reason: "本次收租会超过租期结束日期", label: "调租期" };
+    return { enabled: false, reason: "本次会收到租期结束日之后，请先调整租期或收租间隔", label: "先改设置" };
   }
   return {
     enabled: true,
@@ -1018,7 +1100,7 @@ function collectInfo(room) {
 function collectButton(room) {
   const info = collectInfo(room);
   if (!info.enabled) {
-    return `<button class="mini ghost collect-disabled" disabled title="${esc(info.reason)}">${esc(info.label || "不可收")}</button>`;
+    return `<button class="mini ghost collect-disabled" disabled title="${esc(info.reason)}">${esc(info.label || "暂不可收")}</button>`;
   }
   return `<button class="mini primary" data-request-collect="${info.id}">${info.label}</button>`;
 }
@@ -1034,10 +1116,10 @@ function getCollectRoom(roomId) {
 function requestCollect(roomId) {
   const room = getCollectRoom(roomId);
   const info = collectInfo(room);
-  if (!info.enabled) return showToast(info.reason || "当前不能收租");
+  if (!info.enabled) return showToast(info.reason || "现在还不能收租，请查看按钮提示");
   state.pendingConfirm = () => collectRoomRent(roomId);
   $("#confirmTitle").textContent = "收租确认";
-  $("#confirmMessage").textContent = `${propertyTitle(room)} ${room.roomNo || ""}\n计划收租日：${normalizeDate(room.nextDueDate)}\n收款金额：${fmtMoney(info.amount)}\n覆盖租期：${info.periodStart} 至 ${info.periodEnd}`;
+  $("#confirmMessage").textContent = `${propertyTitle(room)} ${room.roomNo || ""}\n应收日：${normalizeDate(room.nextDueDate)}\n收款金额：${fmtMoney(info.amount)}\n这笔租金对应：${info.periodStart} 至 ${info.periodEnd}`;
   $("#confirmOkBtn").textContent = "确认收租";
   showLockedDialog($("#confirmDialog"));
 }
@@ -1085,10 +1167,10 @@ function updateDueDatePreview() {
   const submit = $("#dueDateSubmitBtn");
 
   let invalidMessage = "";
-  if (!nextDueDate) invalidMessage = "请选择新的计划收租日";
+  if (!nextDueDate) invalidMessage = "请选择新的下次收租日";
   else if (nextDueDate === currentDueDate) invalidMessage = "请选择一个不同的日期";
-  else if (room.leaseStartDate && nextDueDate < normalizeDate(room.leaseStartDate)) invalidMessage = "计划收租日不能早于租期开始日期";
-  else if (room.leaseEndDate && nextDueDate > normalizeDate(room.leaseEndDate)) invalidMessage = "计划收租日不能晚于租期结束日期";
+  else if (room.leaseStartDate && nextDueDate < normalizeDate(room.leaseStartDate)) invalidMessage = "下次收租日不能早于租期开始日期";
+  else if (room.leaseEndDate && nextDueDate > normalizeDate(room.leaseEndDate)) invalidMessage = "下次收租日不能晚于租期结束日期";
 
   if (invalidMessage) {
     preview.className = "due-date-preview invalid";
@@ -1106,10 +1188,10 @@ function updateDueDatePreview() {
   preview.className = "due-date-preview safe";
   preview.innerHTML = `
     <div><span>新的收租日</span><strong>${esc(nextDueDate)}</strong></div>
-    <div><span>租金覆盖</span><strong>${esc(periodStart)} 至 ${esc(periodEnd)}</strong></div>
+    <div><span>这笔租金对应</span><strong>${esc(periodStart)} 至 ${esc(periodEnd)}</strong></div>
     <div><span>应收金额</span><strong>${fmtMoney(amount)}</strong></div>
-    <div><span>统计影响</span><strong>${esc(monthImpact)}</strong></div>
-    <p>只调整提醒和本月应收归属；已收记录及下一笔租金覆盖范围不会改变。</p>`;
+    <div><span>本月应收变化</span><strong>${esc(monthImpact)}</strong></div>
+    <p>只改变收租提醒和本月应收金额；已经收过的租金和记录不会改变。</p>`;
   submit.disabled = false;
 }
 
@@ -1134,7 +1216,7 @@ function requestDueDateAdjustment(event) {
   };
   state.pendingConfirm = () => saveDueDateAdjustment(room.id, payload);
   $("#confirmTitle").textContent = "确认调整";
-  $("#confirmMessage").textContent = `确认把计划收租日从 ${room.nextDueDate} 改为 ${nextDueDate}？\n租金覆盖范围和历史记录不会修改。\n原因：${dueDateReasonText[reason]}`;
+  $("#confirmMessage").textContent = `确认把下次收租日从 ${room.nextDueDate} 改为 ${nextDueDate}？\n已经收过的租金和收租记录不会改变。\n原因：${dueDateReasonText[reason]}`;
   $("#confirmOkBtn").textContent = "确认调整";
   showLockedDialog($("#confirmDialog"));
 }
@@ -1148,7 +1230,7 @@ async function saveDueDateAdjustment(roomId, payload) {
     closeConfirm();
     closeDueDateDialog();
     closeModal();
-    showToast("下次收租日已调整");
+    showToast(`下次收租日已改为 ${payload.nextDueDate}`);
     await load();
   } catch (error) {
     showToast(error.message);
@@ -1169,7 +1251,7 @@ async function openSettlementDialog(roomId) {
   $("#settlementDepositDeduction").value = "0";
   $("#settlementNotes").value = "";
   $("#settlementForm input[name='reason'][value='EARLY_TERMINATION']").checked = true;
-  $("#settlementSuggestedRent").textContent = "计算中";
+  $("#settlementSuggestedRent").textContent = "正在计算...";
   $("#settlementDeposit").textContent = fmtMoney(room.depositAmount);
   showLockedDialog($("#settlementDialog"));
   updateSettlementTotals();
@@ -1181,7 +1263,7 @@ async function loadSettlementPreview() {
   const moveOutDate = normalizeDate($("#settlementMoveOutDate").value);
   if (!roomId || !moveOutDate) return;
   const requestId = ++state.settlementPreviewRequest;
-  $("#settlementSuggestedRent").textContent = "计算中";
+  $("#settlementSuggestedRent").textContent = "正在计算...";
   $("#settlementSubmitBtn").disabled = true;
   try {
     const preview = await api(`/api/properties/rooms/${roomId}/settlement-preview?moveOutDate=${encodeURIComponent(moveOutDate)}`);
@@ -1197,7 +1279,7 @@ async function loadSettlementPreview() {
   } catch (error) {
     if (requestId !== state.settlementPreviewRequest) return;
     state.settlementPreview = null;
-    $("#settlementSuggestedRent").textContent = "计算失败";
+    $("#settlementSuggestedRent").textContent = "暂时无法计算";
     showToast(error.message);
   }
 }
@@ -1226,7 +1308,7 @@ function requestSettlement(event) {
   if ((reason === "OTHER" || depositDeductionAmount > 0) && !notes) {
     return showToast(depositDeductionAmount > 0 ? "有押金扣款时请填写说明" : "请填写退租说明");
   }
-  if (rentRefundAmount > maximumRentRefund) return showToast("退还租金超过可退的已收租金");
+  if (rentRefundAmount > maximumRentRefund) return showToast("退还租金不能超过已收但尚未使用的租金");
   if (depositDeductionAmount > depositAmount) return showToast("押金扣款不能超过当前押金");
   const payload = {
     settlementDate: today(),
@@ -1261,14 +1343,15 @@ async function saveSettlement(roomId, payload) {
 
 async function collectRoomRent(roomId) {
   const room = getCollectRoom(roomId);
-  if (!room.id) return showToast("房间不存在");
+  if (!room.id) return showToast("这个房间可能已被删除，请刷新后再试");
   const info = collectInfo(room);
-  if (!info.enabled) return showToast(info.reason || "当前不能收租");
+  if (!info.enabled) return showToast(info.reason || "现在还不能收租，请查看按钮提示");
   const months = Number(room.payCycleMonths || 1);
   try {
     await api(`/api/properties/rooms/${roomId}/collect`, { method: "POST", body: JSON.stringify({ months, paidDate: today() }) });
     closeConfirm();
-    showToast(`已收${months}个月租金`);
+    const nextCollectionDate = addMonths(normalizeDate(room.nextDueDate), months);
+    showToast(`收租成功，已登记${months}个月租金${nextCollectionDate ? `；下次收租日 ${nextCollectionDate}` : ""}`);
     await load();
   } catch (error) {
     showToast(error.message);
@@ -1279,7 +1362,7 @@ async function updateRoomStatus(roomId, status) {
   try {
     await api(`/api/properties/rooms/${roomId}/status`, { method: "PATCH", body: JSON.stringify({ status }) });
     closeConfirm();
-    showToast(`房态已改为${statusText[status] || status}`);
+    showToast(`已设为“${statusText[status] || status}”`);
     await load();
   } catch (error) {
     showToast(error.message);
@@ -1290,7 +1373,7 @@ function requestRoomStatus(roomId, status) {
   const room = findRecord("room", roomId);
   const target = statusText[status] || status;
   state.pendingConfirm = () => updateRoomStatus(roomId, status);
-  $("#confirmTitle").textContent = "房态确认";
+  $("#confirmTitle").textContent = `确认${target}`;
   $("#confirmMessage").textContent = `确认把 ${propertyTitle(room)} ${room.roomNo || ""} 改为“${target}”？`;
   $("#confirmOkBtn").textContent = `确认${target}`;
   showLockedDialog($("#confirmDialog"));
@@ -1300,8 +1383,8 @@ function requestDelete(token) {
   const [type] = token.split(":");
   const messages = {
     property: "确认删除这个房源？房源下还有已出租房间时不允许删除。",
-    room: "确认删除这个房间？",
-    payment: "确认撤销这笔收租记录？若它是本轮最后一笔，系统会回退收租日和租金覆盖期。",
+    room: "删除后无法恢复，确认删除这个房间？",
+    payment: "只能从最新一笔开始撤销；撤销后，下次收租日和已收租期会一起恢复。",
   };
   if (!messages[type]) return;
   state.pendingConfirm = () => deleteRecord(token);
@@ -1322,7 +1405,12 @@ async function deleteRecord(token) {
   try {
     await api(config.path, { method: "DELETE" });
     closeConfirm();
-    showToast("已处理");
+    const successMessages = {
+      property: "房源已删除",
+      room: "房间已删除",
+      payment: "收租记录已撤销",
+    };
+    showToast(successMessages[type] || "操作已完成");
     await load();
   } catch (error) {
     showToast(error.message);
@@ -1509,7 +1597,7 @@ function empty(text) {
 
 function showToast(message) {
   const toast = $("#toast");
-  toast.textContent = message;
+  toast.textContent = friendlyMessage(message);
   toast.hidden = false;
   window.clearTimeout(showToast.timer);
   showToast.timer = window.setTimeout(() => toast.hidden = true, 2800);

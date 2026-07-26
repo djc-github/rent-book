@@ -53,9 +53,12 @@ config/app-config.prod.json
 ```json
 {
   "apiBaseUrl": "http://localhost:8080",
-  "rentCollectAdvanceDays": 7
+  "rentCollectAdvanceDays": 7,
+  "allowDemoData": true
 }
 ```
+
+`allowDemoData` 仅建议在本地开发环境开启；测试和生产环境必须关闭，避免连接失败时把示例数据误认为真实数据。
 
 部署后也可以直接修改 `dist/config/app-config.json`，不用重新打包。
 
