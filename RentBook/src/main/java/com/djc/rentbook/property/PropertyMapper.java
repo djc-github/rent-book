@@ -54,7 +54,8 @@ public interface PropertyMapper {
 
     @Select("""
             select r.*, t.name as tenant_name, c.end_date as contract_end_date,
-                   ri.id as image_id, ri.url as image_url, coalesce(ri.thumbnail_url, ri.url) as image_thumbnail_url
+                   ri.id as image_id, ri.url as image_url, coalesce(ri.thumbnail_url, ri.url) as image_thumbnail_url,
+                   payment.latest_covered_date
             from rooms r
             left join contracts c on c.room_id = r.id and c.status = 'ACTIVE'
             left join tenants t on t.id = c.tenant_id
@@ -65,6 +66,13 @@ public interface PropertyMapper {
                 order by sort_order, id
                 limit 1
             ) ri on true
+            left join lateral (
+                select max(pay.period_end) as latest_covered_date
+                from rent_payments pay
+                left join contracts payment_contract on payment_contract.id = pay.contract_id
+                where pay.deleted = false
+                  and coalesce(pay.room_id, payment_contract.room_id) = r.id
+            ) payment on true
             where r.property_id = #{propertyId} and r.deleted = false
             order by r.room_no
             """)
@@ -75,7 +83,8 @@ public interface PropertyMapper {
                    r.pay_cycle_months, r.next_due_date, r.last_paid_date, r.lease_start_date, r.lease_end_date,
                    r.orientation, r.tags,
                    coalesce(nullif(p.address, ''), p.name) as property_name, p.address as property_address,
-                   ri.id as image_id, ri.url as image_url, coalesce(ri.thumbnail_url, ri.url) as image_thumbnail_url
+                   ri.id as image_id, ri.url as image_url, coalesce(ri.thumbnail_url, ri.url) as image_thumbnail_url,
+                   payment.latest_covered_date
             from rooms r
             join properties p on p.id = r.property_id
             left join lateral (
@@ -85,6 +94,13 @@ public interface PropertyMapper {
                 order by sort_order, id
                 limit 1
             ) ri on true
+            left join lateral (
+                select max(pay.period_end) as latest_covered_date
+                from rent_payments pay
+                left join contracts payment_contract on payment_contract.id = pay.contract_id
+                where pay.deleted = false
+                  and coalesce(pay.room_id, payment_contract.room_id) = r.id
+            ) payment on true
             where r.deleted = false
               and p.deleted = false
               and (#{status,jdbcType=VARCHAR} is null or r.status = #{status,jdbcType=VARCHAR})
@@ -163,6 +179,18 @@ public interface PropertyMapper {
             where id = #{roomId} and deleted = false
             """)
     int startRoomRent(@Param("roomId") Long roomId, @Param("request") PropertyDtos.RoomRentRequest request);
+
+    @Update("""
+            update rooms
+            set next_due_date = #{nextDueDate},
+                updated_at = now()
+            where id = #{roomId}
+              and deleted = false
+              and next_due_date = #{expectedNextDueDate}
+            """)
+    int adjustRoomNextDueDate(@Param("roomId") Long roomId,
+                              @Param("expectedNextDueDate") java.time.LocalDate expectedNextDueDate,
+                              @Param("nextDueDate") java.time.LocalDate nextDueDate);
 
     @Select("select * from rooms where id = #{roomId} and deleted = false")
     RoomRecord findRoomRecord(@Param("roomId") Long roomId);

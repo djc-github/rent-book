@@ -90,6 +90,15 @@ public class PropertyController {
         return ApiResponse.ok(null);
     }
 
+    @PatchMapping("/rooms/{roomId}/next-due-date")
+    @MutationOperation(module = "收租", action = "调整下次应收日")
+    public ApiResponse<Void> adjustRoomNextDueDate(
+            @PathVariable Long roomId,
+            @Valid @RequestBody PropertyDtos.RoomNextDueDateRequest request) {
+        service.adjustRoomNextDueDate(roomId, request);
+        return ApiResponse.ok(null);
+    }
+
     @PostMapping("/rooms/{roomId}/collect")
     @MutationOperation(module = "收租", action = "登记收租")
     public ApiResponse<Map<String, Long>> collectRoomRent(@PathVariable Long roomId,

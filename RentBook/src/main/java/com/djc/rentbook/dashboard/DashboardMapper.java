@@ -45,6 +45,7 @@ public interface DashboardMapper {
     @Select("""
             select r.id as room_id, r.next_due_date, r.rent_amount, r.pay_cycle_months, r.last_paid_date, r.lease_end_date,
                    coalesce(nullif(p.address, ''), p.name) as property_name, r.room_no,
+                   r.rent_amount * greatest(r.pay_cycle_months, 1) as receivable_amount,
                    case when r.next_due_date < current_date then 'OVERDUE' else 'DUE_SOON' end as urgency
             from rooms r
             join properties p on p.id = r.property_id

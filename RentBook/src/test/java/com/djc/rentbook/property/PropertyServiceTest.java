@@ -163,6 +163,111 @@ class PropertyServiceTest {
     }
 
     @Test
+    void rentSettingsCannotChangeDueDateAfterPaymentHistoryExists() {
+        LocalDate currentNextDueDate = LocalDate.now().plusMonths(2);
+        RoomRecord room = rentedRoom(currentNextDueDate);
+        when(propertyMapper.findRoomRecordForUpdate(8L)).thenReturn(room);
+        when(paymentMapper.findLatestCoveredDate(8L)).thenReturn(currentNextDueDate.minusDays(1));
+        PropertyDtos.RoomRentRequest request = new PropertyDtos.RoomRentRequest(
+                new BigDecimal("1000.00"),
+                new BigDecimal("1000.00"),
+                1,
+                LocalDate.now().minusMonths(3),
+                LocalDate.now().plusYears(1),
+                currentNextDueDate.plusDays(1),
+                null
+        );
+
+        assertThatThrownBy(() -> service.startRoomRent(8L, request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("调整应收日");
+
+        verify(propertyMapper, never()).startRoomRent(any(), any());
+    }
+
+    @Test
+    void adjustNextDueDateChangesOnlyFutureSchedule() {
+        LocalDate currentNextDueDate = LocalDate.now().plusMonths(2);
+        LocalDate latestCoveredDate = currentNextDueDate.minusDays(1);
+        RoomRecord room = rentedRoom(currentNextDueDate);
+        room.setLeaseStartDate(LocalDate.now().minusMonths(3));
+        when(propertyMapper.findRoomRecordForUpdate(8L)).thenReturn(room);
+        when(paymentMapper.findLatestCoveredDate(8L)).thenReturn(latestCoveredDate);
+        when(propertyMapper.adjustRoomNextDueDate(
+                8L, currentNextDueDate, currentNextDueDate.plusDays(7)
+        )).thenReturn(1);
+
+        service.adjustRoomNextDueDate(
+                8L,
+                new PropertyDtos.RoomNextDueDateRequest(
+                        currentNextDueDate,
+                        currentNextDueDate.plusDays(7),
+                        "RENT_FREE_PERIOD",
+                        "双方约定免租一周"
+                )
+        );
+
+        verify(propertyMapper).adjustRoomNextDueDate(
+                8L, currentNextDueDate, currentNextDueDate.plusDays(7)
+        );
+        verify(paymentMapper, never()).createRoomPayment(any());
+    }
+
+    @Test
+    void adjustNextDueDateRejectsPaidPeriodAndStalePage() {
+        LocalDate currentNextDueDate = LocalDate.now().plusMonths(2);
+        RoomRecord room = rentedRoom(currentNextDueDate);
+        room.setLeaseStartDate(LocalDate.now().minusMonths(3));
+        when(propertyMapper.findRoomRecordForUpdate(8L)).thenReturn(room);
+        when(paymentMapper.findLatestCoveredDate(8L)).thenReturn(currentNextDueDate.minusDays(1));
+
+        assertThatThrownBy(() -> service.adjustRoomNextDueDate(
+                8L,
+                new PropertyDtos.RoomNextDueDateRequest(
+                        currentNextDueDate.minusDays(1),
+                        currentNextDueDate.plusDays(1),
+                        "ENTRY_ERROR",
+                        null
+                )
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已经变化");
+
+        assertThatThrownBy(() -> service.adjustRoomNextDueDate(
+                8L,
+                new PropertyDtos.RoomNextDueDateRequest(
+                        currentNextDueDate,
+                        currentNextDueDate.minusDays(1),
+                        "ENTRY_ERROR",
+                        null
+                )
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("已收租期");
+
+        verify(propertyMapper, never()).adjustRoomNextDueDate(any(), any(), any());
+    }
+
+    @Test
+    void adjustNextDueDateRequiresNotesForOtherReason() {
+        LocalDate currentNextDueDate = LocalDate.now().plusMonths(2);
+        RoomRecord room = rentedRoom(currentNextDueDate);
+        room.setLeaseStartDate(LocalDate.now().minusMonths(3));
+        when(propertyMapper.findRoomRecordForUpdate(8L)).thenReturn(room);
+
+        assertThatThrownBy(() -> service.adjustRoomNextDueDate(
+                8L,
+                new PropertyDtos.RoomNextDueDateRequest(
+                        currentNextDueDate,
+                        currentNextDueDate.plusDays(1),
+                        "OTHER",
+                        " "
+                )
+        )).isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("填写简短说明");
+
+        verify(propertyMapper, never()).adjustRoomNextDueDate(any(), any(), any());
+    }
+
+    @Test
     void vacantRoomCannotBeMarkedRentedWithoutRentSettings() {
         RoomRecord room = new RoomRecord();
         room.setId(8L);

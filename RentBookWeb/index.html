@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小胡收租簿</title>
-  <link rel="stylesheet" href="./assets/app.css?v=20260725-1">
+  <link rel="stylesheet" href="./assets/app.css?v=20260725-2">
 </head>
 <body>
   <aside class="sidebar">
@@ -76,6 +76,53 @@
     </form>
   </dialog>
 
+  <dialog id="dueDateDialog" class="modal due-date-modal">
+    <form class="modal-box due-date-box" id="dueDateForm">
+      <header>
+        <div>
+          <h2>调整下次应收日</h2>
+          <small id="dueDateRoomLabel"></small>
+        </div>
+        <button type="button" class="icon-btn" data-close-due-date aria-label="关闭">×</button>
+      </header>
+      <div class="due-date-body">
+        <div class="due-date-summary">
+          <span><small>当前应收日</small><strong id="dueCurrentDate">-</strong></span>
+          <span><small>最近已收至</small><strong id="dueLatestCoveredDate">-</strong></span>
+        </div>
+
+        <div class="field required">
+          <label for="dueNewDate">新的应收日</label>
+          <div class="due-date-input-row">
+            <input id="dueNewDate" name="nextDueDate" type="date" required>
+            <button id="dueRestoreDateBtn" class="ghost" type="button">恢复建议日期</button>
+          </div>
+        </div>
+
+        <div id="dueDatePreview" class="due-date-preview" aria-live="polite"></div>
+
+        <fieldset class="due-reason-group">
+          <legend>调整原因</legend>
+          <div class="due-reason-options">
+            <label><input type="radio" name="reason" value="ENTRY_ERROR" required><span>录入错误</span></label>
+            <label><input type="radio" name="reason" value="RENT_FREE_PERIOD"><span>免租期</span></label>
+            <label><input type="radio" name="reason" value="SCHEDULE_CHANGE"><span>租期调整</span></label>
+            <label><input type="radio" name="reason" value="OTHER"><span>其他</span></label>
+          </div>
+        </fieldset>
+
+        <div class="field full">
+          <label for="dueDateNotes">补充说明</label>
+          <textarea id="dueDateNotes" name="notes" rows="2" maxlength="300" placeholder="选择“其他”时请填写"></textarea>
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="ghost" data-close-due-date>取消</button>
+        <button type="submit" class="primary" id="dueDateSubmitBtn">继续</button>
+      </footer>
+    </form>
+  </dialog>
+
   <dialog id="imageDialog" class="modal image-modal">
     <form class="modal-box image-box" method="dialog">
       <header>
@@ -101,6 +148,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="./assets/app.js?v=20260725-1"></script>
+  <script type="module" src="./assets/app.js?v=20260725-2"></script>
 </body>
 </html>

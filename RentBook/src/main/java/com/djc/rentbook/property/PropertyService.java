@@ -13,11 +13,15 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 
 @Service
 public class PropertyService {
     private static final Logger log = LoggerFactory.getLogger(PropertyService.class);
     private static final List<String> ROOM_STATUSES = List.of("VACANT", "RESERVED", "RENTED", "MAINTENANCE", "OFFLINE");
+    private static final Set<String> DUE_DATE_ADJUSTMENT_REASONS =
+            Set.of("ENTRY_ERROR", "RENT_FREE_PERIOD", "SCHEDULE_CHANGE", "OTHER");
     private final PropertyMapper mapper;
     private final PaymentMapper paymentMapper;
     private final RoomImageService roomImageService;
@@ -171,12 +175,70 @@ public class PropertyService {
                     "下次应收日不能落在已经收过租的日期内，当前已收至" + latestCoveredDate + "，请先核对或撤销错误记录"
             );
         }
+        if (latestCoveredDate != null
+                && "RENTED".equals(room.getStatus())
+                && room.getNextDueDate() != null
+                && !Objects.equals(request.nextDueDate(), room.getNextDueDate())) {
+            throw new IllegalArgumentException("已有收租记录后，请使用“调整应收日”单独修改下次应收日");
+        }
         if (mapper.startRoomRent(roomId, request) == 0) {
             throw new IllegalArgumentException("房间不存在");
         }
         log.info("Started room rent roomId={}, rentAmount={}, depositAmount={}, payCycleMonths={}, leaseStartDate={}, leaseEndDate={}, nextDueDate={}",
                 roomId, request.rentAmount(), request.depositAmount(), request.payCycleMonths(),
                 request.leaseStartDate(), request.leaseEndDate(), request.nextDueDate());
+    }
+
+    @Transactional
+    public void adjustRoomNextDueDate(Long roomId, PropertyDtos.RoomNextDueDateRequest request) {
+        RoomRecord room = mapper.findRoomRecordForUpdate(roomId);
+        if (room == null) {
+            throw new IllegalArgumentException("房间不存在");
+        }
+        if (!"RENTED".equals(room.getStatus())) {
+            throw new IllegalArgumentException("只有已出租房间才能调整下次应收日");
+        }
+        if (room.getNextDueDate() == null) {
+            throw new IllegalArgumentException("当前没有可调整的下次应收日，请先完成出租设置");
+        }
+        if (!Objects.equals(room.getNextDueDate(), request.expectedNextDueDate())) {
+            throw new IllegalArgumentException("下次应收日已经变化，请刷新页面后重新调整");
+        }
+        if (Objects.equals(room.getNextDueDate(), request.nextDueDate())) {
+            throw new IllegalArgumentException("新的应收日与当前日期相同，无需调整");
+        }
+        if (!DUE_DATE_ADJUSTMENT_REASONS.contains(request.reason())) {
+            throw new IllegalArgumentException("请选择正确的调整原因");
+        }
+        if ("OTHER".equals(request.reason()) && blankToNull(request.notes()) == null) {
+            throw new IllegalArgumentException("选择其他原因时，请填写简短说明");
+        }
+
+        LocalDate latestCoveredDate = paymentMapper.findLatestCoveredDate(roomId);
+        LocalDate earliestNextDueDate = latestCoveredDate == null
+                ? room.getLeaseStartDate()
+                : latestCoveredDate.plusDays(1);
+        if (earliestNextDueDate != null && request.nextDueDate().isBefore(earliestNextDueDate)) {
+            throw new IllegalArgumentException(
+                    "新的应收日不能进入已收租期，最早可以调整为" + earliestNextDueDate
+            );
+        }
+        validateRentPeriod(
+                room.getLeaseStartDate(),
+                room.getLeaseEndDate(),
+                request.nextDueDate(),
+                normalizeCycle(room.getPayCycleMonths())
+        );
+        if (mapper.adjustRoomNextDueDate(
+                roomId, request.expectedNextDueDate(), request.nextDueDate()
+        ) == 0) {
+            throw new IllegalArgumentException("下次应收日已经变化，请刷新页面后重新调整");
+        }
+        log.info(
+                "Adjusted room next due date roomId={}, oldNextDueDate={}, newNextDueDate={}, latestCoveredDate={}, reason={}, notes={}",
+                roomId, room.getNextDueDate(), request.nextDueDate(), latestCoveredDate,
+                request.reason(), blankToNull(request.notes())
+        );
     }
 
     @Transactional

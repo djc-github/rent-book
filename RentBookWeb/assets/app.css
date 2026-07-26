@@ -796,6 +796,191 @@ tr:last-child td { border-bottom: 0; }
   border-color: #f3b6b6;
 }
 .field.full { grid-column: 1 / -1; }
+.due-date-locked {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #f7faf9;
+}
+.due-date-locked > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+.due-date-locked strong {
+  color: var(--text);
+  font-size: 15px;
+}
+.due-date-locked small {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.due-date-locked button {
+  min-height: 36px;
+}
+
+.due-date-modal {
+  width: min(480px, calc(100vw - 28px));
+  height: fit-content;
+  min-height: 0;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+}
+.due-date-box {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  max-height: calc(100dvh - 32px);
+}
+.due-date-box header > div {
+  display: grid;
+  gap: 2px;
+}
+.due-date-box header h2 {
+  margin: 0;
+}
+.due-date-body {
+  display: grid;
+  gap: 14px;
+  padding: 16px 18px;
+  overflow: auto;
+}
+.due-date-body input[type="date"],
+.due-date-body textarea {
+  width: 100%;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--text);
+}
+.due-date-body textarea {
+  resize: vertical;
+}
+.due-date-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.due-date-summary > span {
+  display: grid;
+  gap: 4px;
+  padding: 10px 4px;
+}
+.due-date-summary > span + span {
+  padding-left: 14px;
+  border-left: 1px solid var(--line);
+}
+.due-date-summary small {
+  font-size: 12px;
+}
+.due-date-summary strong {
+  font-size: 15px;
+}
+.due-date-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.due-date-input-row input {
+  min-width: 0;
+}
+.due-date-input-row button {
+  padding-inline: 12px;
+  white-space: nowrap;
+}
+.due-date-preview {
+  display: grid;
+  gap: 7px;
+  padding: 11px 12px;
+  border: 1px solid #b8d9d3;
+  border-radius: 6px;
+  background: #f2faf8;
+}
+.due-date-preview > div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+  font-size: 13px;
+}
+.due-date-preview > div span {
+  color: var(--muted);
+}
+.due-date-preview > div strong {
+  text-align: right;
+}
+.due-date-preview p {
+  margin: 2px 0 0;
+  color: #496760;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.due-date-preview.warning {
+  border-color: #edc78d;
+  background: #fff8ed;
+}
+.due-date-preview.warning p,
+.due-date-preview.invalid strong {
+  color: #9a5c0b;
+}
+.due-date-preview.invalid {
+  border-color: #edc78d;
+  background: #fff8ed;
+  font-size: 13px;
+}
+.due-reason-group {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.due-reason-group legend {
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.due-reason-options {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+}
+.due-reason-options label {
+  position: relative;
+  min-width: 0;
+}
+.due-reason-options label + label {
+  border-left: 1px solid var(--line);
+}
+.due-reason-options input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.due-reason-options span {
+  display: grid;
+  min-height: 40px;
+  padding: 6px 4px;
+  place-items: center;
+  color: var(--text);
+  font-size: 13px;
+  text-align: center;
+  cursor: pointer;
+}
+.due-reason-options input:checked + span {
+  background: var(--brand);
+  color: #fff;
+}
 
 .empty {
   color: var(--muted);
@@ -1388,6 +1573,51 @@ small {
   }
   .image-modal #uploadImageBtn {
     grid-column: 1 / -1;
+  }
+  .due-date-locked {
+    gap: 8px;
+  }
+  .due-date-locked small {
+    white-space: normal;
+  }
+  .due-date-modal {
+    width: min(382px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    height: fit-content;
+    min-height: 0;
+    max-height: calc(100dvh - 24px);
+    border-radius: 10px;
+  }
+  .due-date-modal .modal-box {
+    min-height: 0;
+    max-height: calc(100dvh - 24px);
+  }
+  .due-date-modal .modal-box header,
+  .due-date-modal .modal-box footer {
+    padding: 11px 12px;
+  }
+  .due-date-modal .modal-box footer {
+    position: static;
+  }
+  .due-date-body {
+    gap: 12px;
+    padding: 12px;
+  }
+  .due-date-input-row {
+    grid-template-columns: 1fr;
+  }
+  .due-date-input-row button {
+    min-height: 38px;
+  }
+  .due-reason-options {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .due-reason-options label:nth-child(3) {
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+  .due-reason-options label:nth-child(4) {
+    border-top: 1px solid var(--line);
   }
   .confirm-box {
     display: block;

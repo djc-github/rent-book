@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -59,6 +60,13 @@ public final class PropertyDtos {
             @Positive @Digits(integer = 10, fraction = 2) BigDecimal amount,
             String method,
             String notes
+    ) {}
+
+    public record RoomNextDueDateRequest(
+            @NotNull LocalDate expectedNextDueDate,
+            @NotNull LocalDate nextDueDate,
+            @NotBlank @Size(max = 40) String reason,
+            @Size(max = 300) String notes
     ) {}
 
     public record PropertyDetail(Map<String, Object> property, List<Map<String, Object>> rooms) {}
