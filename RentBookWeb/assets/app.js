@@ -117,6 +117,9 @@ const demo = {
 };
 
 const $ = (selector) => document.querySelector(selector);
+const toastHomeParent = $("#toast").parentElement;
+const toastHomeNextSibling = $("#toast").nextSibling;
+let dialogOpenSequence = 0;
 const toYmd = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -283,12 +286,33 @@ function unlockPageScrollIfIdle() {
 
 function showLockedDialog(dialog) {
   lockPageScroll();
+  dialog.dataset.openSequence = String(++dialogOpenSequence);
   dialog.showModal();
+  syncToastLayer();
 }
 
 function closeDialog(dialog) {
   dialog.close();
   unlockPageScrollIfIdle();
+}
+
+function syncToastLayer() {
+  const toast = $("#toast");
+  const activeDialog = [...document.querySelectorAll("dialog[open]")]
+    .sort((left, right) => Number(left.dataset.openSequence || 0) - Number(right.dataset.openSequence || 0))
+    .at(-1);
+  const dialogHost = activeDialog?.querySelector(".modal-box, .confirm-box");
+
+  if (dialogHost) {
+    dialogHost.appendChild(toast);
+    toast.classList.add("dialog-toast");
+    return;
+  }
+
+  if (toast.parentElement !== toastHomeParent) {
+    toastHomeParent.insertBefore(toast, toastHomeNextSibling);
+  }
+  toast.classList.remove("dialog-toast");
 }
 
 function scheduleRoomImages() {
@@ -1598,9 +1622,14 @@ function empty(text) {
 function showToast(message) {
   const toast = $("#toast");
   toast.textContent = friendlyMessage(message);
+  syncToastLayer();
   toast.hidden = false;
   window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => toast.hidden = true, 2800);
+  const visibleTime = Math.min(6000, Math.max(3200, toast.textContent.length * 100));
+  showToast.timer = window.setTimeout(() => {
+    toast.hidden = true;
+    syncToastLayer();
+  }, visibleTime);
 }
 
 function setBusy(busy) {
@@ -1731,7 +1760,11 @@ document.querySelectorAll("[data-cancel-confirm]").forEach((button) => button.ad
 document.querySelectorAll("[data-close-due-date]").forEach((button) => button.addEventListener("click", closeDueDateDialog));
 document.querySelectorAll("[data-close-settlement]").forEach((button) => button.addEventListener("click", closeSettlementDialog));
 document.querySelectorAll("[data-close-image]").forEach((button) => button.addEventListener("click", closeImageDialog));
-document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("close", unlockPageScrollIfIdle));
+document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("close", () => {
+  delete dialog.dataset.openSequence;
+  syncToastLayer();
+  unlockPageScrollIfIdle();
+}));
 $("#confirmOkBtn").addEventListener("click", (event) => {
   const action = state.pendingConfirm;
   return runButtonAction(event.currentTarget, action);

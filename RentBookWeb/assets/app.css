@@ -636,11 +636,35 @@ tr:last-child td { border-bottom: 0; }
   top: 18px;
   transform: translateX(-50%);
   z-index: 20;
+  width: max-content;
+  max-width: min(680px, calc(100vw - 32px));
   background: #102528;
   color: white;
   padding: 12px 14px;
   border-radius: 8px;
   box-shadow: var(--shadow);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+.modal-box,
+.confirm-box {
+  position: relative;
+}
+.toast.dialog-toast {
+  position: absolute;
+  top: 70px;
+  right: 12px;
+  bottom: auto;
+  left: 12px;
+  width: auto;
+  max-width: none;
+  transform: none;
+  z-index: 30;
+  text-align: center;
+}
+.confirm-box .toast.dialog-toast {
+  top: 54px;
 }
 
 .modal {
@@ -1825,6 +1849,16 @@ small {
     bottom: 16px;
     width: calc(100vw - 28px);
     text-align: center;
+  }
+  .toast.dialog-toast {
+    top: 58px;
+    right: 10px;
+    bottom: auto;
+    left: 10px;
+    width: auto;
+  }
+  .confirm-box .toast.dialog-toast {
+    top: 48px;
   }
 }
 
