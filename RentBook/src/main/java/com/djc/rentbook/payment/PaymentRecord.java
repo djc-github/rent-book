@@ -7,6 +7,9 @@ public class PaymentRecord {
     private Long id;
     private Long contractId;
     private Long roomId;
+    private Long rentalId;
+    private LocalDate dueDate;
+    private Integer cycleMonths;
     private LocalDate periodStart;
     private LocalDate periodEnd;
     private LocalDate paidDate;
@@ -21,6 +24,12 @@ public class PaymentRecord {
     public void setContractId(Long contractId) { this.contractId = contractId; }
     public Long getRoomId() { return roomId; }
     public void setRoomId(Long roomId) { this.roomId = roomId; }
+    public Long getRentalId() { return rentalId; }
+    public void setRentalId(Long rentalId) { this.rentalId = rentalId; }
+    public LocalDate getDueDate() { return dueDate; }
+    public void setDueDate(LocalDate dueDate) { this.dueDate = dueDate; }
+    public Integer getCycleMonths() { return cycleMonths; }
+    public void setCycleMonths(Integer cycleMonths) { this.cycleMonths = cycleMonths; }
     public LocalDate getPeriodStart() { return periodStart; }
     public void setPeriodStart(LocalDate periodStart) { this.periodStart = periodStart; }
     public LocalDate getPeriodEnd() { return periodEnd; }

@@ -14,20 +14,27 @@ public interface DashboardMapper {
               (select count(*) from rooms where deleted = false) as room_count,
               (select count(*) from rooms where deleted = false and status = 'VACANT') as vacant_count,
               (select count(*) from rooms where deleted = false and status = 'RENTED') as rented_count,
-              (select coalesce(sum(amount), 0)
-                 from rent_payments
-                where deleted = false
-                  and room_id is not null
-                  and period_start >= date_trunc('month', current_date)::date
-                  and period_start < (date_trunc('month', current_date) + interval '1 month')::date) as month_income,
+              (
+                (select coalesce(sum(amount), 0)
+                   from rent_payments
+                  where deleted = false
+                    and room_id is not null
+                    and coalesce(due_date, period_start) >= date_trunc('month', current_date)::date
+                    and coalesce(due_date, period_start) < (date_trunc('month', current_date) + interval '1 month')::date)
+                -
+                (select coalesce(sum(rent_refund_amount), 0)
+                   from rent_settlements
+                  where settlement_date >= date_trunc('month', current_date)::date
+                    and settlement_date < (date_trunc('month', current_date) + interval '1 month')::date)
+              ) as month_income,
               (select coalesce(sum(month_due.amount), 0)
                  from (
                    select pay.amount
                    from rent_payments pay
                    where pay.deleted = false
                      and pay.room_id is not null
-                     and pay.period_start >= date_trunc('month', current_date)::date
-                     and pay.period_start < (date_trunc('month', current_date) + interval '1 month')::date
+                     and coalesce(pay.due_date, pay.period_start) >= date_trunc('month', current_date)::date
+                     and coalesce(pay.due_date, pay.period_start) < (date_trunc('month', current_date) + interval '1 month')::date
                    union all
                    select r.rent_amount * greatest(r.pay_cycle_months, 1)
                    from rooms r
@@ -43,7 +50,8 @@ public interface DashboardMapper {
     Map<String, Object> summary();
 
     @Select("""
-            select r.id as room_id, r.next_due_date, r.rent_amount, r.pay_cycle_months, r.last_paid_date, r.lease_end_date,
+            select r.id as room_id, r.next_due_date, r.next_period_start_date, r.rent_amount,
+                   r.pay_cycle_months, r.last_paid_date, r.lease_end_date,
                    coalesce(nullif(p.address, ''), p.name) as property_name, r.room_no,
                    r.rent_amount * greatest(r.pay_cycle_months, 1) as receivable_amount,
                    case when r.next_due_date < current_date then 'OVERDUE' else 'DUE_SOON' end as urgency

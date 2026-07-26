@@ -54,7 +54,7 @@ public class PaymentService {
             throw new IllegalArgumentException("合同不存在或对应房间已删除");
         }
         Long overlappingId = mapper.findOverlappingPaymentId(
-                roomId, request.periodStart(), request.periodEnd(), null
+                roomId, null, request.periodStart(), request.periodEnd(), null
         );
         if (overlappingId != null) {
             throw new IllegalArgumentException("该房间对应租期已经登记过收租，请勿重复提交");
@@ -93,16 +93,26 @@ public class PaymentService {
         if (payment == null) {
             throw new IllegalArgumentException("收租记录已撤销，请刷新后查看");
         }
+        if (payment.getRentalId() != null
+                && mapper.hasLaterRentalPayment(payment.getRentalId(), payment.getId(), payment.getPeriodEnd())) {
+            throw new IllegalArgumentException("该记录后面还有收租记录，请从最新一笔开始依次撤销");
+        }
         if (mapper.delete(id) == 0) {
             throw new IllegalArgumentException("收租记录不存在");
         }
         if (payment.getRoomId() != null) {
-            mapper.rollbackRoomNextDueDate(payment);
+            if (payment.getRentalId() != null) {
+                mapper.rollbackCurrentRentalSchedule(payment);
+                mapper.syncRentalScheduleFromRoom(payment);
+            } else {
+                mapper.rollbackRoomNextDueDate(payment);
+            }
         } else {
             mapper.rollbackNextDueDate(payment);
         }
-        log.info("Deleted rent payment id={}, contractId={}, roomId={}, amount={}, periodStart={}, periodEnd={}",
-                id, payment.getContractId(), payment.getRoomId(), payment.getAmount(), payment.getPeriodStart(), payment.getPeriodEnd());
+        log.info("Deleted rent payment id={}, contractId={}, roomId={}, rentalId={}, amount={}, dueDate={}, periodStart={}, periodEnd={}",
+                id, payment.getContractId(), payment.getRoomId(), payment.getRentalId(), payment.getAmount(),
+                payment.getDueDate(), payment.getPeriodStart(), payment.getPeriodEnd());
     }
 
     private int normalizeLimit(int limit) {

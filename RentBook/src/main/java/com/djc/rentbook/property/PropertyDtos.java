@@ -69,5 +69,14 @@ public final class PropertyDtos {
             @Size(max = 300) String notes
     ) {}
 
+    public record RoomSettlementRequest(
+            @NotNull @PastOrPresent LocalDate settlementDate,
+            @NotNull @PastOrPresent LocalDate moveOutDate,
+            @NotBlank @Size(max = 32) String reason,
+            @NotNull @PositiveOrZero @Digits(integer = 10, fraction = 2) BigDecimal rentRefundAmount,
+            @NotNull @PositiveOrZero @Digits(integer = 10, fraction = 2) BigDecimal depositDeductionAmount,
+            @Size(max = 500) String notes
+    ) {}
+
     public record PropertyDetail(Map<String, Object> property, List<Map<String, Object>> rooms) {}
 }

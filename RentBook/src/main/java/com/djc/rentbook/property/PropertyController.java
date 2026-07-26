@@ -4,9 +4,11 @@ import com.djc.rentbook.common.ApiResponse;
 import com.djc.rentbook.mutation.MutationOperation;
 import com.djc.rentbook.roomimage.RoomImageService;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -104,6 +106,21 @@ public class PropertyController {
     public ApiResponse<Map<String, Long>> collectRoomRent(@PathVariable Long roomId,
                                                           @Valid @RequestBody PropertyDtos.RoomCollectRentRequest request) {
         return ApiResponse.ok(Map.of("id", service.collectRoomRent(roomId, request)));
+    }
+
+    @GetMapping("/rooms/{roomId}/settlement-preview")
+    public ApiResponse<Map<String, Object>> settlementPreview(
+            @PathVariable Long roomId,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate moveOutDate) {
+        return ApiResponse.ok(service.settlementPreview(roomId, moveOutDate));
+    }
+
+    @PostMapping("/rooms/{roomId}/settle")
+    @MutationOperation(module = "房间", action = "退租结算")
+    public ApiResponse<Map<String, Long>> settleRoomRent(
+            @PathVariable Long roomId,
+            @Valid @RequestBody PropertyDtos.RoomSettlementRequest request) {
+        return ApiResponse.ok(Map.of("id", service.settleRoomRent(roomId, request)));
     }
 
     @GetMapping("/rooms/{roomId}/images")

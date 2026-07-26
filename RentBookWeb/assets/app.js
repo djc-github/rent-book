@@ -18,6 +18,9 @@ const state = {
   imagePreviewName: "",
   scrollLockY: 0,
   dueDateRoomId: null,
+  settlementRoomId: null,
+  settlementPreview: null,
+  settlementPreviewRequest: 0,
 };
 
 const roomImageLoader = {
@@ -53,7 +56,7 @@ const statusText = {
 const dueDateReasonText = {
   ENTRY_ERROR: "录入错误",
   RENT_FREE_PERIOD: "免租期",
-  SCHEDULE_CHANGE: "租期调整",
+  SCHEDULE_CHANGE: "约定调整",
   OTHER: "其他",
 };
 
@@ -102,7 +105,7 @@ const demo = {
     { id: 2, name: "滨江大道 12 号滨江公寓 A 座", address: "滨江大道 12 号滨江公寓 A 座", district: "江北", roomCount: 1, vacantCount: 1, rentedCount: 0, reservedCount: 0 },
   ],
   rooms: [
-    { id: 1, propertyId: 1, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "301-A", status: "RENTED", rentAmount: 1800, depositAmount: 1800, payCycleMonths: 1, leaseStartDate: "2026-06-01", leaseEndDate: "2027-05-31", nextDueDate: "2026-06-25" },
+    { id: 1, propertyId: 1, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "301-A", status: "RENTED", rentAmount: 1800, depositAmount: 1800, payCycleMonths: 1, leaseStartDate: "2026-06-01", leaseEndDate: "2027-05-31", nextDueDate: "2026-06-25", nextPeriodStartDate: "2026-06-01" },
     { id: 2, propertyId: 1, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "301-B", status: "VACANT", rentAmount: 1500, depositAmount: 1500 },
     { id: 3, propertyId: 1, propertyName: "人民路 88 号阳光花园 3 栋", roomNo: "302-A", status: "RESERVED", rentAmount: 1650, depositAmount: 1650 },
     { id: 4, propertyId: 2, propertyName: "滨江大道 12 号滨江公寓 A 座", roomNo: "1201", status: "VACANT", rentAmount: 4200, depositAmount: 4200 },
@@ -664,6 +667,12 @@ function roomCard(room, propertyTone = 0) {
   const due = room.status === "RENTED" ? dueTag(room) : tag(statusText[room.status] || room.status, statusTone(room.status));
   const image = roomCardImageUrl(room);
   const fallbackImage = roomCardOriginalImageUrl(room) || image;
+  const actions = room.status === "RENTED"
+    ? `${collectButton(room)}
+      <button class="mini ghost" data-form="rent" data-id="${room.id}">收租设置</button>
+      <button class="mini settle" data-settle-room="${room.id}">退租</button>`
+    : `<button class="mini primary" data-form="rent" data-id="${room.id}">出租</button>
+      <button class="mini" data-room-status="${room.id}:${room.status === "RESERVED" ? "VACANT" : "RESERVED"}">${room.status === "RESERVED" ? "空置" : "预定"}</button>`;
   return `<article class="room-row property-room-tone-${propertyTone} status-${room.status || "UNKNOWN"}">
     <button class="room-photo ${image ? "has-image" : "empty"}" data-room-image="${room.id}" aria-label="${image ? "查看或更换房间图片" : "添加房间图片"}">
       ${image ? `<span class="room-photo-placeholder">图片加载中</span><img data-room-card-image data-src="${esc(image)}" data-fallback-src="${esc(fallbackImage)}" alt="${esc(room.roomNo)}房间图片" decoding="async">` : `<span>添加图片</span>`}
@@ -673,13 +682,11 @@ function roomCard(room, propertyTone = 0) {
       <span>${due}</span>
       <small>${fmtMoney(room.rentAmount)} / 押${Number(room.depositAmount || 0).toLocaleString("zh-CN")}</small>
       ${room.leaseStartDate && room.leaseEndDate ? `<small>租期：${esc(room.leaseStartDate)} 至 ${esc(room.leaseEndDate)}</small>` : ""}
-      ${room.nextDueDate ? `<small>下次应收：${esc(room.nextDueDate)}，${room.payCycleMonths || 1}个月一收</small>` : ""}
+      ${room.nextDueDate ? `<small>下次收租：${esc(room.nextDueDate)}，${room.payCycleMonths || 1}个月一收</small>` : ""}
+      ${room.nextPeriodStartDate && room.nextPeriodStartDate !== room.nextDueDate ? `<small>下一笔覆盖：${esc(room.nextPeriodStartDate)} 起</small>` : ""}
     </div>
     <div class="row-actions">
-      ${room.status === "RENTED" ? collectButton(room) : `<button class="mini primary" data-form="rent" data-id="${room.id}">出租</button>`}
-      <button class="mini ghost" data-form="rent" data-id="${room.id}">收租设置</button>
-      <button class="mini" data-room-status="${room.id}:RESERVED">预定</button>
-      <button class="mini" data-room-status="${room.id}:VACANT">空置</button>
+      ${actions}
       <button class="mini ghost" data-form="room" data-id="${room.id}">编辑</button>
       <button class="mini danger" data-delete="room:${room.id}">删除</button>
     </div>
@@ -741,10 +748,10 @@ const formDefs = {
   },
   rent: {
     title: "出租/收租设置",
-    tip: "填好租期和收租周期，以后点房间上的“收租”会自动往后推。",
+    tip: "计划收租日只管提醒；租金覆盖期由系统自动衔接。以后仍然只需点“收租”。",
     path: (ctx) => `/api/properties/rooms/${ctx.id}/rent`,
     method: () => "POST",
-    fields: [["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["leaseStartDate", "租期开始日期", "date", null, today()], ["leaseEndDate", "租期结束日期", "date"], ["payCycleMonths", "几个月一收", "number", null, "1"], ["nextDueDate", "下次应收日", "date"], ["notes", "备注", "textarea"]],
+    fields: [["rentAmount", "月租金", "number"], ["depositAmount", "押金", "number"], ["leaseStartDate", "租期开始日期", "date", null, today()], ["leaseEndDate", "租期结束日期", "date"], ["payCycleMonths", "几个月一收", "number", null, "1"], ["nextDueDate", "下次计划收租日", "date"], ["notes", "备注", "textarea"]],
   },
 };
 
@@ -880,14 +887,16 @@ async function uploadRoomImage() {
 }
 
 function renderLockedDueDate(room, value) {
+  const nextPeriodStart = normalizeDate(room.nextPeriodStartDate)
+    || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : normalizeDate(room.leaseStartDate));
   return `
     <input name="nextDueDate" type="hidden" value="${esc(normalizeDate(value))}">
     <div class="due-date-locked">
       <span>
         <strong>${esc(normalizeDate(value) || "-")}</strong>
-        <small>已收至 ${esc(normalizeDate(room.latestCoveredDate))}，修改周期不会改变该日期</small>
+        <small>下一笔覆盖从 ${esc(nextPeriodStart || "-")} 开始；修改周期不会改变收租日</small>
       </span>
-      <button type="button" class="ghost" data-adjust-due-date="${room.id}">调整</button>
+      <button type="button" class="ghost" data-adjust-due-date="${room.id}">调日期</button>
     </div>`;
 }
 
@@ -926,7 +935,7 @@ async function submitForm(event) {
   for (const key of requiredFields(type)) {
     if (!payload[key]) return showToast("请先填写必填项");
   }
-  const validationMessage = validateFormPayload(type, payload);
+  const validationMessage = validateFormPayload(type, payload, ctx);
   if (validationMessage) return showToast(validationMessage);
   Object.keys(payload).forEach((key) => {
     if (["leaseStartDate", "leaseEndDate", "nextDueDate"].includes(key)) payload[key] = normalizeDate(payload[key]);
@@ -955,17 +964,22 @@ function requiredFields(type) {
   }[type] || [];
 }
 
-function validateFormPayload(type, payload) {
+function validateFormPayload(type, payload, ctx = {}) {
   if (type !== "rent") return "";
   const start = normalizeDate(payload.leaseStartDate);
   const end = normalizeDate(payload.leaseEndDate);
   const nextDue = normalizeDate(payload.nextDueDate);
   const cycle = Number(payload.payCycleMonths || 1);
   if (cycle < 1) return "几个月一收至少为1个月";
-  if (!parseDate(start) || !parseDate(end) || !parseDate(nextDue)) return "请填写正确的租期和应收日期";
+  if (!parseDate(start) || !parseDate(end) || !parseDate(nextDue)) return "请填写正确的租期和收租日期";
   if (end < start) return "租期结束日期不能早于开始日期";
-  if (nextDue < start || nextDue > end) return "下次应收日必须在租期范围内";
-  if (addMonthsMinusDay(nextDue, cycle) > end) return "从下次应收日起，本次收租周期不能超过租期结束日期";
+  if (nextDue < start || nextDue > end) return "下次计划收租日必须在租期范围内";
+  const room = ctx.id ? findRecord("room", ctx.id) : {};
+  const nextPeriodStart = room.status === "RENTED"
+    ? normalizeDate(room.nextPeriodStartDate)
+      || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : start)
+    : start;
+  if (addMonthsMinusDay(nextPeriodStart, cycle) > end) return "按当前收租周期，下一笔租金覆盖期会超过租期结束日期";
   return "";
 }
 
@@ -974,12 +988,15 @@ function collectInfo(room) {
   const id = room.id || room.roomId;
   const months = Number(room.payCycleMonths || 1);
   if (!id) return { enabled: false, reason: "房间不存在" };
-  if (!due) return { enabled: false, reason: "先设置应收日", label: "未设置" };
+  if (!due) return { enabled: false, reason: "先设置收租日", label: "未设置" };
   const advanceDays = rentCollectAdvanceDays();
   if (due > addDays(today(), advanceDays)) {
-    return { enabled: false, reason: `应收日前${advanceDays}天内才能收租`, label: "未到期" };
+    return { enabled: false, reason: `计划收租日前${advanceDays}天内才能收租`, label: "未到期" };
   }
-  const periodStart = due;
+  const periodStart = normalizeDate(room.nextPeriodStartDate)
+    || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : "")
+    || normalizeDate(room.leaseStartDate)
+    || due;
   const periodEnd = addMonthsMinusDay(periodStart, months);
   if (room.leaseEndDate && periodStart > room.leaseEndDate) {
     return { enabled: false, reason: "租期已结束", label: "已到期" };
@@ -1020,22 +1037,20 @@ function requestCollect(roomId) {
   if (!info.enabled) return showToast(info.reason || "当前不能收租");
   state.pendingConfirm = () => collectRoomRent(roomId);
   $("#confirmTitle").textContent = "收租确认";
-  $("#confirmMessage").textContent = `${propertyTitle(room)} ${room.roomNo || ""}\n收款金额：${fmtMoney(info.amount)}\n覆盖租期：${info.periodStart} 至 ${info.periodEnd}`;
+  $("#confirmMessage").textContent = `${propertyTitle(room)} ${room.roomNo || ""}\n计划收租日：${normalizeDate(room.nextDueDate)}\n收款金额：${fmtMoney(info.amount)}\n覆盖租期：${info.periodStart} 至 ${info.periodEnd}`;
   $("#confirmOkBtn").textContent = "确认收租";
   showLockedDialog($("#confirmDialog"));
 }
 
-function recommendedNextDueDate(room) {
-  return room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : normalizeDate(room.leaseStartDate);
-}
-
 function openDueDateDialog(roomId) {
   const room = findRecord("room", roomId);
-  if (!room.id || !room.nextDueDate) return showToast("当前房间没有可调整的应收日");
+  if (!room.id || !room.nextDueDate) return showToast("当前房间没有可调整的收租日");
   state.dueDateRoomId = Number(roomId);
   $("#dueDateRoomLabel").textContent = `${propertyTitle(room)} ${room.roomNo || ""}`;
   $("#dueCurrentDate").textContent = normalizeDate(room.nextDueDate) || "-";
-  $("#dueLatestCoveredDate").textContent = normalizeDate(room.latestCoveredDate) || "暂无记录";
+  $("#dueLatestCoveredDate").textContent = normalizeDate(room.nextPeriodStartDate)
+    || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : normalizeDate(room.leaseStartDate))
+    || "-";
   $("#dueNewDate").value = normalizeDate(room.nextDueDate);
   $("#dueDateNotes").value = "";
   document.querySelectorAll("#dueDateForm input[name='reason']").forEach((radio) => {
@@ -1061,21 +1076,19 @@ function updateDueDatePreview() {
   const room = findRecord("room", state.dueDateRoomId);
   const nextDueDate = normalizeDate($("#dueNewDate").value);
   const currentDueDate = normalizeDate(room.nextDueDate);
-  const recommendedDate = recommendedNextDueDate(room);
   const cycle = Number(room.payCycleMonths || 1);
-  const periodEnd = nextDueDate ? addMonthsMinusDay(nextDueDate, cycle) : "";
+  const periodStart = normalizeDate(room.nextPeriodStartDate)
+    || (room.latestCoveredDate ? addDays(room.latestCoveredDate, 1) : normalizeDate(room.leaseStartDate));
+  const periodEnd = periodStart ? addMonthsMinusDay(periodStart, cycle) : "";
   const amount = Number(room.rentAmount || 0) * cycle;
   const preview = $("#dueDatePreview");
   const submit = $("#dueDateSubmitBtn");
-  const restore = $("#dueRestoreDateBtn");
-  restore.hidden = !recommendedDate || recommendedDate === nextDueDate;
-  restore.dataset.date = recommendedDate || "";
 
   let invalidMessage = "";
-  if (!nextDueDate) invalidMessage = "请选择新的应收日";
+  if (!nextDueDate) invalidMessage = "请选择新的计划收租日";
   else if (nextDueDate === currentDueDate) invalidMessage = "请选择一个不同的日期";
-  else if (recommendedDate && nextDueDate < recommendedDate) invalidMessage = `不能进入已收租期，最早可选 ${recommendedDate}`;
-  else if (room.leaseEndDate && periodEnd > normalizeDate(room.leaseEndDate)) invalidMessage = "调整后的完整收租周期会超过租期结束日期";
+  else if (room.leaseStartDate && nextDueDate < normalizeDate(room.leaseStartDate)) invalidMessage = "计划收租日不能早于租期开始日期";
+  else if (room.leaseEndDate && nextDueDate > normalizeDate(room.leaseEndDate)) invalidMessage = "计划收租日不能晚于租期结束日期";
 
   if (invalidMessage) {
     preview.className = "due-date-preview invalid";
@@ -1084,19 +1097,19 @@ function updateDueDatePreview() {
     return;
   }
 
-  const gapEnd = recommendedDate && nextDueDate > recommendedDate ? addDays(nextDueDate, -1) : "";
   let monthImpact = "本月应收金额不变";
   if (isDateInCurrentMonth(currentDueDate) && !isDateInCurrentMonth(nextDueDate)) {
     monthImpact = `本月应收将减少 ${fmtMoney(amount)}`;
   } else if (!isDateInCurrentMonth(currentDueDate) && isDateInCurrentMonth(nextDueDate)) {
     monthImpact = `本月应收将增加 ${fmtMoney(amount)}`;
   }
-  preview.className = `due-date-preview ${gapEnd ? "warning" : "safe"}`;
+  preview.className = "due-date-preview safe";
   preview.innerHTML = `
-    <div><span>下一笔覆盖</span><strong>${esc(nextDueDate)} 至 ${esc(periodEnd)}</strong></div>
+    <div><span>新的收租日</span><strong>${esc(nextDueDate)}</strong></div>
+    <div><span>租金覆盖</span><strong>${esc(periodStart)} 至 ${esc(periodEnd)}</strong></div>
     <div><span>应收金额</span><strong>${fmtMoney(amount)}</strong></div>
     <div><span>统计影响</span><strong>${esc(monthImpact)}</strong></div>
-    ${gapEnd ? `<p>将产生 ${esc(recommendedDate)} 至 ${esc(gapEnd)} 的免租或空档，请确认这是实际约定。</p>` : `<p>新的租期会紧接最近已收租期，不会产生空档。</p>`}`;
+    <p>只调整提醒和本月应收归属；已收记录及下一笔租金覆盖范围不会改变。</p>`;
   submit.disabled = false;
 }
 
@@ -1113,8 +1126,6 @@ function requestDueDateAdjustment(event) {
   if ($("#dueDateSubmitBtn").disabled) return;
 
   const nextDueDate = normalizeDate($("#dueNewDate").value);
-  const recommendedDate = recommendedNextDueDate(room);
-  const gapEnd = recommendedDate && nextDueDate > recommendedDate ? addDays(nextDueDate, -1) : "";
   const payload = {
     expectedNextDueDate: normalizeDate(room.nextDueDate),
     nextDueDate,
@@ -1123,9 +1134,7 @@ function requestDueDateAdjustment(event) {
   };
   state.pendingConfirm = () => saveDueDateAdjustment(room.id, payload);
   $("#confirmTitle").textContent = "确认调整";
-  $("#confirmMessage").textContent = gapEnd
-    ? `确认把应收日改为 ${nextDueDate}？\n${recommendedDate} 至 ${gapEnd} 将不产生收租任务。\n原因：${dueDateReasonText[reason]}`
-    : `确认把应收日从 ${room.nextDueDate} 改为 ${nextDueDate}？\n历史收租记录不会修改。\n原因：${dueDateReasonText[reason]}`;
+  $("#confirmMessage").textContent = `确认把计划收租日从 ${room.nextDueDate} 改为 ${nextDueDate}？\n租金覆盖范围和历史记录不会修改。\n原因：${dueDateReasonText[reason]}`;
   $("#confirmOkBtn").textContent = "确认调整";
   showLockedDialog($("#confirmDialog"));
 }
@@ -1139,7 +1148,111 @@ async function saveDueDateAdjustment(roomId, payload) {
     closeConfirm();
     closeDueDateDialog();
     closeModal();
-    showToast("下次应收日已调整");
+    showToast("下次收租日已调整");
+    await load();
+  } catch (error) {
+    showToast(error.message);
+  }
+}
+
+async function openSettlementDialog(roomId) {
+  const room = findRecord("room", roomId);
+  if (!room.id || room.status !== "RENTED") return showToast("当前房间不需要办理退租");
+  state.settlementRoomId = Number(roomId);
+  state.settlementPreview = null;
+  $("#settlementRoomLabel").textContent = `${propertyTitle(room)} ${room.roomNo || ""}`;
+  const moveOutInput = $("#settlementMoveOutDate");
+  moveOutInput.min = normalizeDate(room.leaseStartDate) || "";
+  moveOutInput.max = today();
+  moveOutInput.value = today();
+  $("#settlementRentRefund").value = "0";
+  $("#settlementDepositDeduction").value = "0";
+  $("#settlementNotes").value = "";
+  $("#settlementForm input[name='reason'][value='EARLY_TERMINATION']").checked = true;
+  $("#settlementSuggestedRent").textContent = "计算中";
+  $("#settlementDeposit").textContent = fmtMoney(room.depositAmount);
+  showLockedDialog($("#settlementDialog"));
+  updateSettlementTotals();
+  await loadSettlementPreview();
+}
+
+async function loadSettlementPreview() {
+  const roomId = state.settlementRoomId;
+  const moveOutDate = normalizeDate($("#settlementMoveOutDate").value);
+  if (!roomId || !moveOutDate) return;
+  const requestId = ++state.settlementPreviewRequest;
+  $("#settlementSuggestedRent").textContent = "计算中";
+  $("#settlementSubmitBtn").disabled = true;
+  try {
+    const preview = await api(`/api/properties/rooms/${roomId}/settlement-preview?moveOutDate=${encodeURIComponent(moveOutDate)}`);
+    if (requestId !== state.settlementPreviewRequest || Number(roomId) !== Number(state.settlementRoomId)) return;
+    state.settlementPreview = preview;
+    $("#settlementSuggestedRent").textContent = fmtMoney(preview.suggestedRentRefundAmount);
+    $("#settlementDeposit").textContent = fmtMoney(preview.depositAmount);
+    $("#settlementRentRefund").value = Number(preview.suggestedRentRefundAmount || 0).toFixed(2);
+    $("#settlementRentRefund").max = Number(preview.maximumRentRefundAmount || 0).toFixed(2);
+    $("#settlementDepositDeduction").max = Number(preview.depositAmount || 0).toFixed(2);
+    updateSettlementTotals();
+    $("#settlementSubmitBtn").disabled = false;
+  } catch (error) {
+    if (requestId !== state.settlementPreviewRequest) return;
+    state.settlementPreview = null;
+    $("#settlementSuggestedRent").textContent = "计算失败";
+    showToast(error.message);
+  }
+}
+
+function updateSettlementTotals() {
+  const deposit = Number(state.settlementPreview?.depositAmount || findRecord("room", state.settlementRoomId).depositAmount || 0);
+  const rentRefund = Math.max(0, Number($("#settlementRentRefund").value || 0));
+  const deduction = Math.max(0, Number($("#settlementDepositDeduction").value || 0));
+  const depositRefund = Math.max(0, deposit - deduction);
+  $("#settlementDepositRefund").textContent = fmtMoney(depositRefund);
+  $("#settlementTotalRefund").textContent = fmtMoney(rentRefund + depositRefund);
+}
+
+function requestSettlement(event) {
+  event.preventDefault();
+  const form = $("#settlementForm");
+  if (!form.reportValidity() || !state.settlementPreview) return;
+  const room = findRecord("room", state.settlementRoomId);
+  const reason = form.querySelector("input[name='reason']:checked")?.value;
+  const notes = $("#settlementNotes").value.trim();
+  const rentRefundAmount = Number($("#settlementRentRefund").value || 0);
+  const depositDeductionAmount = Number($("#settlementDepositDeduction").value || 0);
+  const maximumRentRefund = Number(state.settlementPreview.maximumRentRefundAmount || 0);
+  const depositAmount = Number(state.settlementPreview.depositAmount || 0);
+  if (!reason) return showToast("请选择退租原因");
+  if ((reason === "OTHER" || depositDeductionAmount > 0) && !notes) {
+    return showToast(depositDeductionAmount > 0 ? "有押金扣款时请填写说明" : "请填写退租说明");
+  }
+  if (rentRefundAmount > maximumRentRefund) return showToast("退还租金超过可退的已收租金");
+  if (depositDeductionAmount > depositAmount) return showToast("押金扣款不能超过当前押金");
+  const payload = {
+    settlementDate: today(),
+    moveOutDate: normalizeDate($("#settlementMoveOutDate").value),
+    reason,
+    rentRefundAmount,
+    depositDeductionAmount,
+    notes: notes || undefined,
+  };
+  const depositRefund = Math.max(0, depositAmount - depositDeductionAmount);
+  state.pendingConfirm = () => saveSettlement(room.id, payload);
+  $("#confirmTitle").textContent = "确认退租";
+  $("#confirmMessage").textContent = `${propertyTitle(room)} ${room.roomNo || ""}\n实际退租：${payload.moveOutDate}\n退还租金：${fmtMoney(rentRefundAmount)}\n退还押金：${fmtMoney(depositRefund)}\n完成后房间自动变为空置。`;
+  $("#confirmOkBtn").textContent = "确认退租";
+  showLockedDialog($("#confirmDialog"));
+}
+
+async function saveSettlement(roomId, payload) {
+  try {
+    await api(`/api/properties/rooms/${roomId}/settle`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    closeConfirm();
+    closeSettlementDialog();
+    showToast("退租已完成，房间已变为空置");
     await load();
   } catch (error) {
     showToast(error.message);
@@ -1152,10 +1265,6 @@ async function collectRoomRent(roomId) {
   const info = collectInfo(room);
   if (!info.enabled) return showToast(info.reason || "当前不能收租");
   const months = Number(room.payCycleMonths || 1);
-  const periodStart = room.nextDueDate || today();
-  const periodEnd = addMonthsMinusDay(periodStart, months);
-  if (room.leaseEndDate && periodStart > room.leaseEndDate) return showToast("租期已结束，不能继续收租");
-  if (room.leaseEndDate && periodEnd > room.leaseEndDate) return showToast("本次收租会超过租期结束日期，请先调整租期");
   try {
     await api(`/api/properties/rooms/${roomId}/collect`, { method: "POST", body: JSON.stringify({ months, paidDate: today() }) });
     closeConfirm();
@@ -1192,7 +1301,7 @@ function requestDelete(token) {
   const messages = {
     property: "确认删除这个房源？房源下还有已出租房间时不允许删除。",
     room: "确认删除这个房间？",
-    payment: "确认撤销这笔收租记录？系统会回退下次应收日。",
+    payment: "确认撤销这笔收租记录？若它是本轮最后一笔，系统会回退收租日和租金覆盖期。",
   };
   if (!messages[type]) return;
   state.pendingConfirm = () => deleteRecord(token);
@@ -1475,6 +1584,14 @@ function closeDueDateDialog() {
   $("#dueDateForm").reset();
 }
 
+function closeSettlementDialog() {
+  state.settlementRoomId = null;
+  state.settlementPreview = null;
+  state.settlementPreviewRequest += 1;
+  closeDialog($("#settlementDialog"));
+  $("#settlementForm").reset();
+}
+
 function resetViewScroll() {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   document.documentElement.scrollTop = 0;
@@ -1517,13 +1634,14 @@ $("#dueDateForm").addEventListener("change", () => {
   updateDueDateNotesRequirement();
   updateDueDatePreview();
 });
-$("#dueRestoreDateBtn").addEventListener("click", (event) => {
-  $("#dueNewDate").value = event.currentTarget.dataset.date || "";
-  updateDueDatePreview();
-});
+$("#settlementForm").addEventListener("submit", requestSettlement);
+$("#settlementMoveOutDate").addEventListener("change", loadSettlementPreview);
+$("#settlementRentRefund").addEventListener("input", updateSettlementTotals);
+$("#settlementDepositDeduction").addEventListener("input", updateSettlementTotals);
 document.querySelectorAll("[data-close-modal]").forEach((button) => button.addEventListener("click", closeModal));
 document.querySelectorAll("[data-cancel-confirm]").forEach((button) => button.addEventListener("click", closeConfirm));
 document.querySelectorAll("[data-close-due-date]").forEach((button) => button.addEventListener("click", closeDueDateDialog));
+document.querySelectorAll("[data-close-settlement]").forEach((button) => button.addEventListener("click", closeSettlementDialog));
 document.querySelectorAll("[data-close-image]").forEach((button) => button.addEventListener("click", closeImageDialog));
 document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("close", unlockPageScrollIfIdle));
 $("#confirmOkBtn").addEventListener("click", (event) => {
@@ -1547,6 +1665,8 @@ $("#content").addEventListener("click", (event) => {
   if (formButton) return openFormFromButton(formButton);
   const collectButton = event.target.closest("[data-request-collect]");
   if (collectButton) return requestCollect(collectButton.dataset.requestCollect);
+  const settlementButton = event.target.closest("[data-settle-room]");
+  if (settlementButton) return openSettlementDialog(settlementButton.dataset.settleRoom);
   const roomStatusButton = event.target.closest("[data-room-status]");
   if (roomStatusButton) {
     const [roomId, status] = roomStatusButton.dataset.roomStatus.split(":");

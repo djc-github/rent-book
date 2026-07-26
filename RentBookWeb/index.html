@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小胡收租簿</title>
-  <link rel="stylesheet" href="./assets/app.css?v=20260725-2">
+  <link rel="stylesheet" href="./assets/app.css?v=20260726-1">
 </head>
 <body>
   <aside class="sidebar">
@@ -80,23 +80,20 @@
     <form class="modal-box due-date-box" id="dueDateForm">
       <header>
         <div>
-          <h2>调整下次应收日</h2>
+          <h2>调整下次收租日</h2>
           <small id="dueDateRoomLabel"></small>
         </div>
         <button type="button" class="icon-btn" data-close-due-date aria-label="关闭">×</button>
       </header>
       <div class="due-date-body">
         <div class="due-date-summary">
-          <span><small>当前应收日</small><strong id="dueCurrentDate">-</strong></span>
-          <span><small>最近已收至</small><strong id="dueLatestCoveredDate">-</strong></span>
+          <span><small>当前收租日</small><strong id="dueCurrentDate">-</strong></span>
+          <span><small>下一笔覆盖</small><strong id="dueLatestCoveredDate">-</strong></span>
         </div>
 
         <div class="field required">
-          <label for="dueNewDate">新的应收日</label>
-          <div class="due-date-input-row">
-            <input id="dueNewDate" name="nextDueDate" type="date" required>
-            <button id="dueRestoreDateBtn" class="ghost" type="button">恢复建议日期</button>
-          </div>
+          <label for="dueNewDate">新的计划收租日</label>
+          <input id="dueNewDate" name="nextDueDate" type="date" required>
         </div>
 
         <div id="dueDatePreview" class="due-date-preview" aria-live="polite"></div>
@@ -106,7 +103,7 @@
           <div class="due-reason-options">
             <label><input type="radio" name="reason" value="ENTRY_ERROR" required><span>录入错误</span></label>
             <label><input type="radio" name="reason" value="RENT_FREE_PERIOD"><span>免租期</span></label>
-            <label><input type="radio" name="reason" value="SCHEDULE_CHANGE"><span>租期调整</span></label>
+            <label><input type="radio" name="reason" value="SCHEDULE_CHANGE"><span>约定调整</span></label>
             <label><input type="radio" name="reason" value="OTHER"><span>其他</span></label>
           </div>
         </fieldset>
@@ -119,6 +116,65 @@
       <footer>
         <button type="button" class="ghost" data-close-due-date>取消</button>
         <button type="submit" class="primary" id="dueDateSubmitBtn">继续</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog id="settlementDialog" class="modal settlement-modal">
+    <form class="modal-box settlement-box" id="settlementForm">
+      <header>
+        <div>
+          <h2>办理退租</h2>
+          <small id="settlementRoomLabel"></small>
+        </div>
+        <button type="button" class="icon-btn" data-close-settlement aria-label="关闭">×</button>
+      </header>
+      <div class="settlement-body">
+        <p class="settlement-intro">仅在租客退房时使用。完成后房间自动变为空置，原收租记录会完整保留。</p>
+
+        <div class="field required">
+          <label for="settlementMoveOutDate">实际退租日期</label>
+          <input id="settlementMoveOutDate" name="moveOutDate" type="date" required>
+        </div>
+
+        <div id="settlementSummary" class="settlement-summary" aria-live="polite">
+          <span><small>剩余租金建议退</small><strong id="settlementSuggestedRent">计算中</strong></span>
+          <span><small>当前押金</small><strong id="settlementDeposit">-</strong></span>
+        </div>
+
+        <div class="settlement-amounts">
+          <div class="field required">
+            <label for="settlementRentRefund">实际退还租金</label>
+            <input id="settlementRentRefund" name="rentRefundAmount" type="number" min="0" step="0.01" required>
+          </div>
+          <div class="field required">
+            <label for="settlementDepositDeduction">押金扣款</label>
+            <input id="settlementDepositDeduction" name="depositDeductionAmount" type="number" min="0" step="0.01" value="0" required>
+          </div>
+        </div>
+
+        <div class="settlement-result">
+          <span>退还押金 <strong id="settlementDepositRefund">￥0</strong></span>
+          <span>退款合计 <strong id="settlementTotalRefund">￥0</strong></span>
+        </div>
+
+        <fieldset class="due-reason-group">
+          <legend>退租原因</legend>
+          <div class="due-reason-options settlement-reasons">
+            <label><input type="radio" name="reason" value="EARLY_TERMINATION" checked required><span>提前退租</span></label>
+            <label><input type="radio" name="reason" value="NORMAL_END"><span>正常到期</span></label>
+            <label><input type="radio" name="reason" value="OTHER"><span>其他</span></label>
+          </div>
+        </fieldset>
+
+        <div class="field full">
+          <label for="settlementNotes">扣款或补充说明</label>
+          <textarea id="settlementNotes" name="notes" rows="2" maxlength="500" placeholder="有押金扣款或选择“其他”时请填写"></textarea>
+        </div>
+      </div>
+      <footer>
+        <button type="button" class="ghost" data-close-settlement>取消</button>
+        <button type="submit" class="primary" id="settlementSubmitBtn">核对并退租</button>
       </footer>
     </form>
   </dialog>
@@ -148,6 +204,6 @@
     </form>
   </dialog>
 
-  <script type="module" src="./assets/app.js?v=20260725-2"></script>
+  <script type="module" src="./assets/app.js?v=20260726-1"></script>
 </body>
 </html>

@@ -62,6 +62,20 @@ public interface PaymentMapper {
     PaymentRecord findForUpdate(@Param("id") Long id);
 
     @Select("""
+            select exists(
+                select 1
+                from rent_payments
+                where rental_id = #{rentalId}
+                  and deleted = false
+                  and id <> #{paymentId}
+                  and period_end > #{periodEnd}
+            )
+            """)
+    boolean hasLaterRentalPayment(@Param("rentalId") Long rentalId,
+                                  @Param("paymentId") Long paymentId,
+                                  @Param("periodEnd") LocalDate periodEnd);
+
+    @Select("""
             select c.room_id
             from contracts c
             join rooms r on r.id = c.room_id
@@ -80,6 +94,7 @@ public interface PaymentMapper {
             left join contracts c on c.id = pay.contract_id
             where pay.deleted = false
               and coalesce(pay.room_id, c.room_id) = #{roomId}
+              and (#{rentalId,jdbcType=BIGINT} is null or pay.rental_id = #{rentalId})
               and pay.period_start <= #{periodEnd}
               and pay.period_end >= #{periodStart}
               and (#{excludePaymentId,jdbcType=BIGINT} is null or pay.id <> #{excludePaymentId})
@@ -87,6 +102,7 @@ public interface PaymentMapper {
             limit 1
             """)
     Long findOverlappingPaymentId(@Param("roomId") Long roomId,
+                                  @Param("rentalId") Long rentalId,
                                   @Param("periodStart") LocalDate periodStart,
                                   @Param("periodEnd") LocalDate periodEnd,
                                   @Param("excludePaymentId") Long excludePaymentId);
@@ -97,8 +113,10 @@ public interface PaymentMapper {
             left join contracts c on c.id = pay.contract_id
             where pay.deleted = false
               and coalesce(pay.room_id, c.room_id) = #{roomId}
+              and (#{rentalId,jdbcType=BIGINT} is null or pay.rental_id = #{rentalId})
             """)
-    LocalDate findLatestCoveredDate(@Param("roomId") Long roomId);
+    LocalDate findLatestCoveredDate(@Param("roomId") Long roomId,
+                                    @Param("rentalId") Long rentalId);
 
     @Insert("""
             insert into rent_payments(contract_id, period_start, period_end, paid_date, amount, method, receipt_no, notes)
@@ -108,8 +126,14 @@ public interface PaymentMapper {
     void create(PaymentRecord payment);
 
     @Insert("""
-            insert into rent_payments(room_id, period_start, period_end, paid_date, amount, method, receipt_no, notes)
-            values(#{roomId}, #{periodStart}, #{periodEnd}, #{paidDate}, #{amount}, #{method}, #{receiptNo}, #{notes})
+            insert into rent_payments(
+                room_id, rental_id, due_date, cycle_months,
+                period_start, period_end, paid_date, amount, method, receipt_no, notes
+            )
+            values(
+                #{roomId}, #{rentalId}, #{dueDate}, #{cycleMonths},
+                #{periodStart}, #{periodEnd}, #{paidDate}, #{amount}, #{method}, #{receiptNo}, #{notes}
+            )
             """)
     @Options(useGeneratedKeys = true, keyProperty = "id")
     void createRoomPayment(PaymentRecord payment);
@@ -193,6 +217,48 @@ public interface PaymentMapper {
             where id = #{roomId} and #{roomId,jdbcType=BIGINT} is not null
             """)
     void rollbackRoomNextDueDate(PaymentRecord payment);
+
+    @Update("""
+            update rooms
+            set next_due_date = case
+                    when current_rental_id = #{rentalId}
+                     and next_period_start_date = (cast(#{periodEnd} as date) + interval '1 day')::date
+                        then coalesce(#{dueDate,jdbcType=DATE}, #{periodStart})
+                    else next_due_date
+                end,
+                next_period_start_date = case
+                    when current_rental_id = #{rentalId}
+                     and next_period_start_date = (cast(#{periodEnd} as date) + interval '1 day')::date
+                        then #{periodStart}
+                    else next_period_start_date
+                end,
+                last_paid_date = (
+                    select max(pay.paid_date)
+                    from rent_payments pay
+                    where pay.rental_id = #{rentalId}
+                      and pay.deleted = false
+                      and pay.id <> #{id}
+                ),
+                updated_at = now()
+            where id = #{roomId}
+              and #{roomId,jdbcType=BIGINT} is not null
+              and current_rental_id = #{rentalId}
+            """)
+    int rollbackCurrentRentalSchedule(PaymentRecord payment);
+
+    @Update("""
+            update room_rentals rental
+            set next_collection_date = room.next_due_date,
+                next_period_start_date = room.next_period_start_date,
+                updated_at = now()
+            from rooms room
+            where rental.id = #{rentalId}
+              and rental.room_id = #{roomId}
+              and rental.status = 'ACTIVE'
+              and room.id = rental.room_id
+              and room.current_rental_id = rental.id
+            """)
+    int syncRentalScheduleFromRoom(PaymentRecord payment);
 
     @Update("update rent_payments set deleted = true where id = #{id} and deleted = false")
     int delete(@Param("id") Long id);

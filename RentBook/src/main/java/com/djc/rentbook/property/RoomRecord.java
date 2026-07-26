@@ -14,6 +14,9 @@ public class RoomRecord {
     private String status;
     private Integer payCycleMonths;
     private LocalDate nextDueDate;
+    private LocalDate nextPeriodStartDate;
+    private Integer collectionDay;
+    private Long currentRentalId;
     private LocalDate lastPaidDate;
     private LocalDate leaseStartDate;
     private LocalDate leaseEndDate;
@@ -41,6 +44,12 @@ public class RoomRecord {
     public void setPayCycleMonths(Integer payCycleMonths) { this.payCycleMonths = payCycleMonths; }
     public LocalDate getNextDueDate() { return nextDueDate; }
     public void setNextDueDate(LocalDate nextDueDate) { this.nextDueDate = nextDueDate; }
+    public LocalDate getNextPeriodStartDate() { return nextPeriodStartDate; }
+    public void setNextPeriodStartDate(LocalDate nextPeriodStartDate) { this.nextPeriodStartDate = nextPeriodStartDate; }
+    public Integer getCollectionDay() { return collectionDay; }
+    public void setCollectionDay(Integer collectionDay) { this.collectionDay = collectionDay; }
+    public Long getCurrentRentalId() { return currentRentalId; }
+    public void setCurrentRentalId(Long currentRentalId) { this.currentRentalId = currentRentalId; }
     public LocalDate getLastPaidDate() { return lastPaidDate; }
     public void setLastPaidDate(LocalDate lastPaidDate) { this.lastPaidDate = lastPaidDate; }
     public LocalDate getLeaseStartDate() { return leaseStartDate; }

@@ -1,26 +1,11 @@
 #!/bin/sh
 set -eu
 
-APP_NAME="${APP_NAME:-RentBook}"
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-APP_HOME=$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)
-JAR_FILE="${APP_HOME}/RentBook.jar"
-PID_FILE="${PID_FILE:-${APP_HOME}/${APP_NAME}.pid}"
-STOP_TIMEOUT="${STOP_TIMEOUT:-30}"
+. "${SCRIPT_DIR}/common.sh"
 
-find_pid() {
-  if [ -f "${PID_FILE}" ]; then
-    PID=$(cat "${PID_FILE}" 2>/dev/null || true)
-    if [ -n "${PID}" ] && kill -0 "${PID}" >/dev/null 2>&1; then
-      echo "${PID}"
-      return 0
-    fi
-    rm -f "${PID_FILE}"
-  fi
-  if command -v pgrep >/dev/null 2>&1; then
-    pgrep -f "java .*${JAR_FILE}" 2>/dev/null | head -n 1 || true
-  fi
-}
+STOP_TIMEOUT="${STOP_TIMEOUT:-30}"
+KILL_TIMEOUT="${KILL_TIMEOUT:-5}"
 
 PID=$(find_pid)
 if [ -z "${PID}" ]; then
@@ -34,7 +19,7 @@ kill "${PID}" >/dev/null 2>&1 || true
 
 i=1
 while [ "${i}" -le "${STOP_TIMEOUT}" ]; do
-  if ! kill -0 "${PID}" >/dev/null 2>&1; then
+  if ! is_running_pid "${PID}"; then
     rm -f "${PID_FILE}"
     echo "${APP_NAME} stopped"
     exit 0
@@ -45,5 +30,17 @@ done
 
 echo "Graceful stop timed out after ${STOP_TIMEOUT}s, killing pid=${PID}"
 kill -9 "${PID}" >/dev/null 2>&1 || true
-rm -f "${PID_FILE}"
-echo "${APP_NAME} stopped"
+
+i=1
+while [ "${i}" -le "${KILL_TIMEOUT}" ]; do
+  if ! is_running_pid "${PID}"; then
+    rm -f "${PID_FILE}"
+    echo "${APP_NAME} stopped"
+    exit 0
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+
+echo "Failed to stop ${APP_NAME}, pid=${PID} is still running"
+exit 1

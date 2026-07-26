@@ -10,7 +10,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.time.YearMonth;
+import java.time.temporal.ChronoUnit;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -22,6 +26,8 @@ public class PropertyService {
     private static final List<String> ROOM_STATUSES = List.of("VACANT", "RESERVED", "RENTED", "MAINTENANCE", "OFFLINE");
     private static final Set<String> DUE_DATE_ADJUSTMENT_REASONS =
             Set.of("ENTRY_ERROR", "RENT_FREE_PERIOD", "SCHEDULE_CHANGE", "OTHER");
+    private static final Set<String> SETTLEMENT_REASONS =
+            Set.of("EARLY_TERMINATION", "NORMAL_END", "OTHER");
     private final PropertyMapper mapper;
     private final PaymentMapper paymentMapper;
     private final RoomImageService roomImageService;
@@ -141,8 +147,8 @@ public class PropertyService {
         if ("RENTED".equals(status) && !"RENTED".equals(room.getStatus())) {
             throw new IllegalArgumentException("出租房间请使用“出租/收租设置”，不能直接修改为已出租");
         }
-        if ("RENTED".equals(room.getStatus()) && "RESERVED".equals(status)) {
-            throw new IllegalArgumentException("已出租房间不能直接改为预定，请先设为空置");
+        if ("RENTED".equals(room.getStatus()) && !"RENTED".equals(status)) {
+            throw new IllegalArgumentException("已出租房间请使用“退租结算”，系统会保留本轮收租记录并自动设为空置");
         }
         if (mapper.updateRoomStatus(roomId, status) == 0) {
             throw new IllegalArgumentException("房间不存在");
@@ -153,6 +159,7 @@ public class PropertyService {
     @Transactional
     public int expireEndedRoomLeases(LocalDate today) {
         LocalDate effectiveDate = today == null ? LocalDate.now() : today;
+        mapper.expireEndedRentals(effectiveDate);
         int count = mapper.expireEndedRoomLeases(effectiveDate);
         if (count > 0) {
             log.info("Expired ended room leases count={}, today={}", count, effectiveDate);
@@ -168,25 +175,65 @@ public class PropertyService {
         if (room == null) {
             throw new IllegalArgumentException("房间不存在");
         }
-        validateRentPeriod(request.leaseStartDate(), request.leaseEndDate(), request.nextDueDate(), normalizeCycle(request.payCycleMonths()));
-        LocalDate latestCoveredDate = paymentMapper.findLatestCoveredDate(roomId);
-        if (latestCoveredDate != null && !request.nextDueDate().isAfter(latestCoveredDate)) {
-            throw new IllegalArgumentException(
-                    "下次应收日不能落在已经收过租的日期内，当前已收至" + latestCoveredDate + "，请先核对或撤销错误记录"
-            );
+        int cycleMonths = normalizeCycle(request.payCycleMonths());
+        validateRentDates(request.leaseStartDate(), request.leaseEndDate(), request.nextDueDate());
+
+        boolean updatingCurrentRental = "RENTED".equals(room.getStatus());
+        Long rentalId = room.getCurrentRentalId();
+        if (updatingCurrentRental && rentalId == null) {
+            throw new IllegalStateException("当前出租轮次缺失，请先确认数据库升级脚本已执行");
         }
+        LocalDate latestCoveredDate = updatingCurrentRental
+                ? paymentMapper.findLatestCoveredDate(roomId, rentalId)
+                : null;
         if (latestCoveredDate != null
-                && "RENTED".equals(room.getStatus())
                 && room.getNextDueDate() != null
                 && !Objects.equals(request.nextDueDate(), room.getNextDueDate())) {
-            throw new IllegalArgumentException("已有收租记录后，请使用“调整应收日”单独修改下次应收日");
+            throw new IllegalArgumentException("已有收租记录后，请使用“调整收租日”单独修改下次计划收租日");
         }
-        if (mapper.startRoomRent(roomId, request) == 0) {
-            throw new IllegalArgumentException("房间不存在");
+
+        LocalDate nextPeriodStartDate = updatingCurrentRental
+                ? firstNonNull(
+                        room.getNextPeriodStartDate(),
+                        latestCoveredDate == null ? null : latestCoveredDate.plusDays(1),
+                        request.leaseStartDate()
+                )
+                : request.leaseStartDate();
+        validateCoverageFits(nextPeriodStartDate, request.leaseEndDate(), cycleMonths);
+        int collectionDay = request.nextDueDate().getDayOfMonth();
+
+        if (updatingCurrentRental) {
+            int roomUpdated = mapper.updateCurrentRoomRent(roomId, rentalId, collectionDay, request);
+            int rentalUpdated = mapper.updateCurrentRental(roomId, rentalId, collectionDay, request);
+            if (roomUpdated == 0 || rentalUpdated == 0) {
+                throw new IllegalArgumentException("出租设置已变化，请刷新页面后重试");
+            }
+        } else {
+            RoomRentalRecord rental = new RoomRentalRecord();
+            rental.setRoomId(roomId);
+            rental.setLeaseStartDate(request.leaseStartDate());
+            rental.setLeaseEndDate(request.leaseEndDate());
+            rental.setRentAmount(request.rentAmount());
+            rental.setDepositAmount(request.depositAmount());
+            rental.setPayCycleMonths(cycleMonths);
+            rental.setNextCollectionDate(request.nextDueDate());
+            rental.setCollectionDay(collectionDay);
+            rental.setNextPeriodStartDate(nextPeriodStartDate);
+            rental.setNotes(blankToNull(request.notes()));
+            mapper.createRoomRental(rental);
+            if (mapper.startNewRoomRent(
+                    roomId, rental.getId(), nextPeriodStartDate, collectionDay, request
+            ) == 0) {
+                throw new IllegalArgumentException("房间不存在");
+            }
+            rentalId = rental.getId();
         }
-        log.info("Started room rent roomId={}, rentAmount={}, depositAmount={}, payCycleMonths={}, leaseStartDate={}, leaseEndDate={}, nextDueDate={}",
-                roomId, request.rentAmount(), request.depositAmount(), request.payCycleMonths(),
-                request.leaseStartDate(), request.leaseEndDate(), request.nextDueDate());
+        log.info(
+                "Saved room rent roomId={}, rentalId={}, operation={}, rentAmount={}, depositAmount={}, payCycleMonths={}, leaseStartDate={}, leaseEndDate={}, nextCollectionDate={}, nextPeriodStartDate={}",
+                roomId, rentalId, updatingCurrentRental ? "UPDATE" : "START", request.rentAmount(),
+                request.depositAmount(), cycleMonths, request.leaseStartDate(), request.leaseEndDate(),
+                request.nextDueDate(), nextPeriodStartDate
+        );
     }
 
     @Transactional
@@ -196,16 +243,19 @@ public class PropertyService {
             throw new IllegalArgumentException("房间不存在");
         }
         if (!"RENTED".equals(room.getStatus())) {
-            throw new IllegalArgumentException("只有已出租房间才能调整下次应收日");
+            throw new IllegalArgumentException("只有已出租房间才能调整下次收租日");
         }
         if (room.getNextDueDate() == null) {
-            throw new IllegalArgumentException("当前没有可调整的下次应收日，请先完成出租设置");
+            throw new IllegalArgumentException("当前没有可调整的下次收租日，请先完成出租设置");
+        }
+        if (room.getCurrentRentalId() == null) {
+            throw new IllegalStateException("当前出租轮次缺失，请先确认数据库升级脚本已执行");
         }
         if (!Objects.equals(room.getNextDueDate(), request.expectedNextDueDate())) {
-            throw new IllegalArgumentException("下次应收日已经变化，请刷新页面后重新调整");
+            throw new IllegalArgumentException("下次收租日已经变化，请刷新页面后重新调整");
         }
         if (Objects.equals(room.getNextDueDate(), request.nextDueDate())) {
-            throw new IllegalArgumentException("新的应收日与当前日期相同，无需调整");
+            throw new IllegalArgumentException("新的收租日与当前日期相同，无需调整");
         }
         if (!DUE_DATE_ADJUSTMENT_REASONS.contains(request.reason())) {
             throw new IllegalArgumentException("请选择正确的调整原因");
@@ -214,29 +264,21 @@ public class PropertyService {
             throw new IllegalArgumentException("选择其他原因时，请填写简短说明");
         }
 
-        LocalDate latestCoveredDate = paymentMapper.findLatestCoveredDate(roomId);
-        LocalDate earliestNextDueDate = latestCoveredDate == null
-                ? room.getLeaseStartDate()
-                : latestCoveredDate.plusDays(1);
-        if (earliestNextDueDate != null && request.nextDueDate().isBefore(earliestNextDueDate)) {
-            throw new IllegalArgumentException(
-                    "新的应收日不能进入已收租期，最早可以调整为" + earliestNextDueDate
-            );
-        }
-        validateRentPeriod(
-                room.getLeaseStartDate(),
-                room.getLeaseEndDate(),
-                request.nextDueDate(),
-                normalizeCycle(room.getPayCycleMonths())
-        );
+        validateCollectionDate(room.getLeaseStartDate(), room.getLeaseEndDate(), request.nextDueDate());
         if (mapper.adjustRoomNextDueDate(
                 roomId, request.expectedNextDueDate(), request.nextDueDate()
         ) == 0) {
-            throw new IllegalArgumentException("下次应收日已经变化，请刷新页面后重新调整");
+            throw new IllegalArgumentException("下次收租日已经变化，请刷新页面后重新调整");
+        }
+        if (mapper.adjustRentalCollectionDate(
+                roomId, room.getCurrentRentalId(), request.nextDueDate()
+        ) == 0) {
+            throw new IllegalArgumentException("当前出租轮次已经变化，请刷新页面后重新调整");
         }
         log.info(
-                "Adjusted room next due date roomId={}, oldNextDueDate={}, newNextDueDate={}, latestCoveredDate={}, reason={}, notes={}",
-                roomId, room.getNextDueDate(), request.nextDueDate(), latestCoveredDate,
+                "Adjusted room collection date roomId={}, rentalId={}, oldCollectionDate={}, newCollectionDate={}, nextPeriodStartDate={}, reason={}, notes={}",
+                roomId, room.getCurrentRentalId(), room.getNextDueDate(), request.nextDueDate(),
+                room.getNextPeriodStartDate(),
                 request.reason(), blankToNull(request.notes())
         );
     }
@@ -250,14 +292,25 @@ public class PropertyService {
         if (!"RENTED".equals(room.getStatus())) {
             throw new IllegalArgumentException("只有已出租的房间才能收租");
         }
+        if (room.getCurrentRentalId() == null) {
+            throw new IllegalStateException("当前出租轮次缺失，请先确认数据库升级脚本已执行");
+        }
         LocalDate today = LocalDate.now();
         if (room.getNextDueDate() == null) {
-            throw new IllegalArgumentException("请先设置下次应收日");
+            throw new IllegalArgumentException("请先设置下次收租日");
         }
         if (room.getNextDueDate().isAfter(today.plusDays(rentCollectAdvanceDays))) {
-            throw new IllegalArgumentException("还没到可收租时间，请在应收日前" + rentCollectAdvanceDays + "天内再收");
+            throw new IllegalArgumentException("还没到可收租时间，请在计划收租日前" + rentCollectAdvanceDays + "天内再收");
         }
-        LocalDate periodStart = room.getNextDueDate();
+        LocalDate latestCoveredDate = paymentMapper.findLatestCoveredDate(roomId, room.getCurrentRentalId());
+        LocalDate periodStart = firstNonNull(
+                room.getNextPeriodStartDate(),
+                latestCoveredDate == null ? null : latestCoveredDate.plusDays(1),
+                room.getLeaseStartDate()
+        );
+        if (periodStart == null) {
+            throw new IllegalArgumentException("下一笔租金覆盖日期缺失，请先检查收租设置");
+        }
         int months = normalizeCycle(room.getPayCycleMonths());
         if (request.months() != null && request.months() != months) {
             throw new IllegalArgumentException("收租周期已经变化，请刷新页面后重新确认");
@@ -269,10 +322,12 @@ public class PropertyService {
         if (room.getLeaseEndDate() != null && periodEnd.isAfter(room.getLeaseEndDate())) {
             throw new IllegalArgumentException("本次收租会超过租期结束日期，请先调整租期或减少收租月数");
         }
-        Long overlappingId = paymentMapper.findOverlappingPaymentId(roomId, periodStart, periodEnd, null);
+        Long overlappingId = paymentMapper.findOverlappingPaymentId(
+                roomId, room.getCurrentRentalId(), periodStart, periodEnd, null
+        );
         if (overlappingId != null) {
             throw new IllegalArgumentException(
-                    "该房间的" + periodStart + "至" + periodEnd + "租期已经登记过收租，请先核对收租记录"
+                    "本轮出租的" + periodStart + "至" + periodEnd + "租金已经登记，请先核对收租记录"
             );
         }
         LocalDate paidDate = request.paidDate() == null ? LocalDate.now() : request.paidDate();
@@ -284,6 +339,9 @@ public class PropertyService {
 
         PaymentRecord payment = new PaymentRecord();
         payment.setRoomId(roomId);
+        payment.setRentalId(room.getCurrentRentalId());
+        payment.setDueDate(room.getNextDueDate());
+        payment.setCycleMonths(months);
         payment.setPeriodStart(periodStart);
         payment.setPeriodEnd(periodEnd);
         payment.setPaidDate(paidDate);
@@ -291,10 +349,101 @@ public class PropertyService {
         payment.setMethod(request.method());
         payment.setNotes(request.notes());
         paymentMapper.createRoomPayment(payment);
-        mapper.moveRoomDueDate(roomId, periodEnd.plusDays(1), paidDate);
-        log.info("Collected room rent paymentId={}, roomId={}, months={}, amount={}, periodStart={}, periodEnd={}, paidDate={}, nextDueDate={}",
-                payment.getId(), roomId, months, amount, periodStart, periodEnd, paidDate, periodEnd.plusDays(1));
+        LocalDate nextCollectionDate = advanceCollectionDate(
+                room.getNextDueDate(), months, room.getCollectionDay()
+        );
+        LocalDate nextPeriodStartDate = periodEnd.plusDays(1);
+        int roomUpdated = mapper.moveRoomSchedule(
+                roomId, room.getCurrentRentalId(), nextCollectionDate, nextPeriodStartDate, paidDate
+        );
+        int rentalUpdated = mapper.moveRentalSchedule(
+                roomId, room.getCurrentRentalId(), nextCollectionDate, nextPeriodStartDate
+        );
+        if (roomUpdated == 0 || rentalUpdated == 0) {
+            throw new IllegalArgumentException("房间收租设置已经变化，请刷新页面后重试");
+        }
+        log.info(
+                "Collected room rent paymentId={}, roomId={}, rentalId={}, months={}, amount={}, dueDate={}, periodStart={}, periodEnd={}, paidDate={}, nextCollectionDate={}, nextPeriodStartDate={}",
+                payment.getId(), roomId, room.getCurrentRentalId(), months, amount, room.getNextDueDate(),
+                periodStart, periodEnd, paidDate, nextCollectionDate, nextPeriodStartDate
+        );
         return payment.getId();
+    }
+
+    public Map<String, Object> settlementPreview(Long roomId, LocalDate moveOutDate) {
+        RoomRecord room = mapper.findRoomRecord(roomId);
+        validateSettlementRoom(room, moveOutDate);
+        RefundAmounts amounts = calculateRefundAmounts(room.getCurrentRentalId(), moveOutDate);
+        Map<String, Object> preview = new LinkedHashMap<>();
+        preview.put("roomId", roomId);
+        preview.put("rentalId", room.getCurrentRentalId());
+        preview.put("moveOutDate", moveOutDate);
+        preview.put("depositAmount", zeroIfNull(room.getDepositAmount()));
+        preview.put("suggestedRentRefundAmount", amounts.suggested());
+        preview.put("maximumRentRefundAmount", amounts.maximum());
+        preview.put("latestCoveredDate", paymentMapper.findLatestCoveredDate(roomId, room.getCurrentRentalId()));
+        preview.put("nextPeriodStartDate", room.getNextPeriodStartDate());
+        return preview;
+    }
+
+    @Transactional
+    public Long settleRoomRent(Long roomId, PropertyDtos.RoomSettlementRequest request) {
+        RoomRecord room = mapper.findRoomRecordForUpdate(roomId);
+        validateSettlementRoom(room, request.moveOutDate());
+        if (request.settlementDate().isBefore(request.moveOutDate())) {
+            throw new IllegalArgumentException("结算日期不能早于实际退租日期");
+        }
+        if (!SETTLEMENT_REASONS.contains(request.reason())) {
+            throw new IllegalArgumentException("请选择正确的退租原因");
+        }
+        String notes = blankToNull(request.notes());
+        if ("OTHER".equals(request.reason()) && notes == null) {
+            throw new IllegalArgumentException("选择其他原因时，请填写简短说明");
+        }
+
+        BigDecimal depositAmount = zeroIfNull(room.getDepositAmount());
+        if (request.depositDeductionAmount().compareTo(depositAmount) > 0) {
+            throw new IllegalArgumentException("押金扣款不能超过当前押金");
+        }
+        if (request.depositDeductionAmount().signum() > 0 && notes == null) {
+            throw new IllegalArgumentException("有押金扣款时，请填写扣款说明");
+        }
+        RefundAmounts refundable = calculateRefundAmounts(room.getCurrentRentalId(), request.moveOutDate());
+        if (request.rentRefundAmount().compareTo(refundable.maximum()) > 0) {
+            throw new IllegalArgumentException("退还租金不能超过本轮出租关联的可退已收租金总额");
+        }
+
+        BigDecimal depositRefundAmount = depositAmount
+                .subtract(request.depositDeductionAmount())
+                .setScale(2, RoundingMode.HALF_UP);
+        BigDecimal totalRefundAmount = request.rentRefundAmount()
+                .add(depositRefundAmount)
+                .setScale(2, RoundingMode.HALF_UP);
+
+        RentSettlementRecord settlement = new RentSettlementRecord();
+        settlement.setRentalId(room.getCurrentRentalId());
+        settlement.setRoomId(roomId);
+        settlement.setSettlementDate(request.settlementDate());
+        settlement.setMoveOutDate(request.moveOutDate());
+        settlement.setReason(request.reason());
+        settlement.setRentRefundAmount(request.rentRefundAmount());
+        settlement.setDepositAmount(depositAmount);
+        settlement.setDepositDeductionAmount(request.depositDeductionAmount());
+        settlement.setDepositRefundAmount(depositRefundAmount);
+        settlement.setTotalRefundAmount(totalRefundAmount);
+        settlement.setNotes(notes);
+        mapper.createSettlement(settlement);
+        if (mapper.endRental(roomId, room.getCurrentRentalId(), request.moveOutDate()) == 0
+                || mapper.settleRoomToVacant(roomId, room.getCurrentRentalId()) == 0) {
+            throw new IllegalArgumentException("房间出租状态已经变化，请刷新页面后重试");
+        }
+        log.info(
+                "Settled room rental settlementId={}, roomId={}, rentalId={}, settlementDate={}, moveOutDate={}, reason={}, rentRefundAmount={}, depositAmount={}, depositDeductionAmount={}, depositRefundAmount={}, totalRefundAmount={}",
+                settlement.getId(), roomId, room.getCurrentRentalId(), request.settlementDate(),
+                request.moveOutDate(), request.reason(), request.rentRefundAmount(), depositAmount,
+                request.depositDeductionAmount(), depositRefundAmount, totalRefundAmount
+        );
+        return settlement.getId();
     }
 
     @Transactional
@@ -359,7 +508,7 @@ public class PropertyService {
         return months == null || months < 1 ? 1 : months;
     }
 
-    private void validateRentPeriod(LocalDate leaseStartDate, LocalDate leaseEndDate, LocalDate nextDueDate, int payCycleMonths) {
+    private void validateRentDates(LocalDate leaseStartDate, LocalDate leaseEndDate, LocalDate nextDueDate) {
         if (leaseStartDate == null || leaseEndDate == null) {
             throw new IllegalArgumentException("请填写租期开始日期和结束日期");
         }
@@ -367,14 +516,107 @@ public class PropertyService {
             throw new IllegalArgumentException("租期结束日期不能早于开始日期");
         }
         if (nextDueDate == null) {
-            throw new IllegalArgumentException("请填写下次应收日");
+            throw new IllegalArgumentException("请填写下次计划收租日");
         }
+        validateCollectionDate(leaseStartDate, leaseEndDate, nextDueDate);
+    }
+
+    private void validateCollectionDate(LocalDate leaseStartDate, LocalDate leaseEndDate, LocalDate nextDueDate) {
         if (nextDueDate.isBefore(leaseStartDate) || nextDueDate.isAfter(leaseEndDate)) {
-            throw new IllegalArgumentException("下次应收日必须在租期范围内");
+            throw new IllegalArgumentException("下次计划收租日必须在租期范围内");
         }
-        LocalDate nextCycleEnd = nextDueDate.plusMonths(payCycleMonths).minusDays(1);
+    }
+
+    private void validateCoverageFits(LocalDate nextPeriodStartDate, LocalDate leaseEndDate, int payCycleMonths) {
+        if (nextPeriodStartDate == null) {
+            throw new IllegalArgumentException("下一笔租金覆盖日期缺失");
+        }
+        if (nextPeriodStartDate.isAfter(leaseEndDate)) {
+            throw new IllegalArgumentException("下一笔租金覆盖期已经超过租期结束日期");
+        }
+        LocalDate nextCycleEnd = nextPeriodStartDate.plusMonths(payCycleMonths).minusDays(1);
         if (nextCycleEnd.isAfter(leaseEndDate)) {
-            throw new IllegalArgumentException("从下次应收日起，本次收租周期不能超过租期结束日期");
+            throw new IllegalArgumentException("按当前收租周期，下一笔租金覆盖期会超过租期结束日期");
         }
+    }
+
+    private LocalDate advanceCollectionDate(LocalDate currentDate, int months, Integer preferredDay) {
+        int day = preferredDay == null ? currentDate.getDayOfMonth() : Math.max(1, Math.min(31, preferredDay));
+        YearMonth targetMonth = YearMonth.from(currentDate).plusMonths(months);
+        return targetMonth.atDay(Math.min(day, targetMonth.lengthOfMonth()));
+    }
+
+    private void validateSettlementRoom(RoomRecord room, LocalDate moveOutDate) {
+        if (room == null) {
+            throw new IllegalArgumentException("房间不存在");
+        }
+        if (!"RENTED".equals(room.getStatus()) || room.getCurrentRentalId() == null) {
+            throw new IllegalArgumentException("只有当前已出租的房间才能办理退租");
+        }
+        if (moveOutDate == null) {
+            throw new IllegalArgumentException("请选择实际退租日期");
+        }
+        if (room.getLeaseStartDate() != null && moveOutDate.isBefore(room.getLeaseStartDate())) {
+            throw new IllegalArgumentException("实际退租日期不能早于租期开始日期");
+        }
+        if (moveOutDate.isAfter(LocalDate.now())) {
+            throw new IllegalArgumentException("实际退租日期不能晚于今天");
+        }
+    }
+
+    private RefundAmounts calculateRefundAmounts(Long rentalId, LocalDate moveOutDate) {
+        BigDecimal suggested = BigDecimal.ZERO;
+        BigDecimal maximum = BigDecimal.ZERO;
+        LocalDate unusedFrom = moveOutDate.plusDays(1);
+        for (Map<String, Object> payment : mapper.listRefundablePayments(rentalId, moveOutDate)) {
+            LocalDate periodStart = asLocalDate(payment.get("period_start"));
+            LocalDate periodEnd = asLocalDate(payment.get("period_end"));
+            BigDecimal amount = asBigDecimal(payment.get("amount"));
+            maximum = maximum.add(amount);
+            LocalDate effectiveUnusedStart = periodStart.isAfter(unusedFrom) ? periodStart : unusedFrom;
+            if (effectiveUnusedStart.isAfter(periodEnd)) {
+                continue;
+            }
+            long totalDays = ChronoUnit.DAYS.between(periodStart, periodEnd) + 1;
+            long unusedDays = ChronoUnit.DAYS.between(effectiveUnusedStart, periodEnd) + 1;
+            BigDecimal paymentRefund = amount
+                    .multiply(BigDecimal.valueOf(unusedDays))
+                    .divide(BigDecimal.valueOf(totalDays), 2, RoundingMode.HALF_UP);
+            suggested = suggested.add(paymentRefund);
+        }
+        return new RefundAmounts(
+                suggested.setScale(2, RoundingMode.HALF_UP),
+                maximum.setScale(2, RoundingMode.HALF_UP)
+        );
+    }
+
+    private LocalDate asLocalDate(Object value) {
+        if (value instanceof LocalDate date) {
+            return date;
+        }
+        return LocalDate.parse(String.valueOf(value));
+    }
+
+    private BigDecimal asBigDecimal(Object value) {
+        if (value instanceof BigDecimal decimal) {
+            return decimal;
+        }
+        return new BigDecimal(String.valueOf(value));
+    }
+
+    private BigDecimal zeroIfNull(BigDecimal value) {
+        return value == null ? BigDecimal.ZERO.setScale(2) : value;
+    }
+
+    private LocalDate firstNonNull(LocalDate... values) {
+        for (LocalDate value : values) {
+            if (value != null) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private record RefundAmounts(BigDecimal suggested, BigDecimal maximum) {
     }
 }
