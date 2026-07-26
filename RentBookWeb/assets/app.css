@@ -526,10 +526,17 @@ tr:last-child td { border-bottom: 0; }
   color: #7d8b90;
 }
 .room-photo.empty span {
-  padding: 0 8px;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  padding: 0 4px;
   font-size: 12px;
   line-height: 1.25;
   text-align: center;
+  white-space: nowrap;
+  word-break: keep-all;
 }
 .danger-confirm {
   background: var(--danger);
