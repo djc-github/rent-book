@@ -335,7 +335,6 @@ public class PropertyService {
         if (request.amount() != null && request.amount().compareTo(expectedAmount) != 0) {
             throw new IllegalArgumentException("收租金额与房间租金和收租月数不一致，请先修改收租设置");
         }
-        BigDecimal amount = expectedAmount;
 
         PaymentRecord payment = new PaymentRecord();
         payment.setRoomId(roomId);
@@ -345,7 +344,7 @@ public class PropertyService {
         payment.setPeriodStart(periodStart);
         payment.setPeriodEnd(periodEnd);
         payment.setPaidDate(paidDate);
-        payment.setAmount(amount);
+        payment.setAmount(expectedAmount);
         payment.setMethod(request.method());
         payment.setNotes(request.notes());
         paymentMapper.createRoomPayment(payment);
@@ -364,7 +363,7 @@ public class PropertyService {
         }
         log.info(
                 "Collected room rent paymentId={}, roomId={}, rentalId={}, months={}, amount={}, dueDate={}, periodStart={}, periodEnd={}, paidDate={}, nextCollectionDate={}, nextPeriodStartDate={}",
-                payment.getId(), roomId, room.getCurrentRentalId(), months, amount, room.getNextDueDate(),
+                payment.getId(), roomId, room.getCurrentRentalId(), months, expectedAmount, room.getNextDueDate(),
                 periodStart, periodEnd, paidDate, nextCollectionDate, nextPeriodStartDate
         );
         return payment.getId();
