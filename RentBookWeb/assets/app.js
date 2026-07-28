@@ -809,7 +809,7 @@ function renderPaymentRecords(rows) {
       </span>
       <span class="payment-history-meta">
         <span class="tag">${countText}</span>
-        <span class="toggle-mark">${expanded ? "收起" : "查看"}</span>
+        <span class="toggle-mark">${expanded ? "点击收起" : "点击查看"}</span>
       </span>
     </button>
     ${expanded ? renderPaymentRecordBody(filtered) : ""}
