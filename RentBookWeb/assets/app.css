@@ -357,9 +357,9 @@ tr:last-child td { border-bottom: 0; }
   border-color: #c9dcdd;
 }
 .property-group {
-  --property-accent: var(--brand);
-  --property-head-start: #c7e0db;
-  --property-head-soft: #eef7f5;
+  --property-accent: #2e6f9e;
+  --property-head-start: #c7e0ef;
+  --property-head-soft: #e2eef5;
   position: relative;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-left: 6px solid var(--property-accent);
@@ -372,19 +372,29 @@ tr:last-child td { border-bottom: 0; }
     inset 0 -1px 0 rgba(15, 35, 40, 0.08);
 }
 .property-tone-1 {
-  --property-accent: #2563eb;
-  --property-head-start: #d0ddf2;
-  --property-head-soft: #f1f5fc;
+  --property-accent: #b86045;
+  --property-head-start: #efcbbd;
+  --property-head-soft: #f6e4dc;
 }
 .property-tone-2 {
-  --property-accent: #b45309;
-  --property-head-start: #ead7bf;
-  --property-head-soft: #fbf5ed;
+  --property-accent: #5366a6;
+  --property-head-start: #d1d8ed;
+  --property-head-soft: #e7eaf6;
 }
 .property-tone-3 {
-  --property-accent: #64748b;
-  --property-head-start: #d4dde3;
-  --property-head-soft: #f2f5f6;
+  --property-accent: #b8862e;
+  --property-head-start: #ead6a8;
+  --property-head-soft: #f5ecd8;
+}
+.property-tone-4 {
+  --property-accent: #647a8c;
+  --property-head-start: #d4dfe5;
+  --property-head-soft: #e7ecef;
+}
+.property-tone-5 {
+  --property-accent: #a95d72;
+  --property-head-start: #e8c9d2;
+  --property-head-soft: #f4e4e9;
 }
 .property-head {
   display: grid;
@@ -484,10 +494,12 @@ tr:last-child td { border-bottom: 0; }
 .room-row.status-RESERVED { border-left-color: var(--warn); background: #fffdf8; }
 .room-row.status-MAINTENANCE,
 .room-row.status-OFFLINE { border-left-color: #64748b; background: #f8fafc; }
-.room-row.property-room-tone-0 { border-left-color: #8bcac1; }
-.room-row.property-room-tone-1 { border-left-color: #9db9f4; }
-.room-row.property-room-tone-2 { border-left-color: #ddb77f; }
-.room-row.property-room-tone-3 { border-left-color: #b4beca; }
+.room-row.property-room-tone-0 { border-left-color: #86b6d0; }
+.room-row.property-room-tone-1 { border-left-color: #d59b86; }
+.room-row.property-room-tone-2 { border-left-color: #9ca8d1; }
+.room-row.property-room-tone-3 { border-left-color: #d2b168; }
+.room-row.property-room-tone-4 { border-left-color: #9babb7; }
+.room-row.property-room-tone-5 { border-left-color: #cb93a2; }
 .room-photo {
   width: 96px;
   aspect-ratio: 4 / 3;
