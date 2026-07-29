@@ -731,7 +731,7 @@ function propertyBlock(property, rooms, index, initial, forceExpanded = false) {
   const summary = roomSummary(rooms);
   const expanded = forceExpanded || isPropertyExpanded(property, rooms);
   const dueCount = rooms.filter((room) => collectInfo(room).enabled).length;
-  return `<section class="property-group property-tone-${index % 4} ${expanded ? "expanded" : "collapsed"}" data-property-context-index="${index + 1}" data-property-context-label="${esc(propertyTitle(property))}" data-property-initial="${initial}">
+  return `<section class="property-group property-tone-${index % 6} ${expanded ? "expanded" : "collapsed"}" data-property-context-index="${index + 1}" data-property-context-label="${esc(propertyTitle(property))}" data-property-initial="${initial}">
     <div class="property-head">
       <button class="property-title property-toggle" data-toggle-property="${property.id}" aria-expanded="${expanded}">
         <span class="property-index">${index + 1}</span>
@@ -750,7 +750,7 @@ function propertyBlock(property, rooms, index, initial, forceExpanded = false) {
         <button class="mini danger" data-delete="property:${property.id}">删除</button>
       </div>
     </div>
-    ${expanded ? `<div class="room-list">${rooms.map((room) => roomCard(room, index % 4)).join("") || empty("还没有房间")}</div>` : ""}
+    ${expanded ? `<div class="room-list">${rooms.map((room) => roomCard(room, index % 6)).join("") || empty("还没有房间")}</div>` : ""}
   </section>`;
 }
 
