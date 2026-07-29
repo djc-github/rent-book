@@ -1579,7 +1579,7 @@ function dueTag(room) {
   if (!room.nextDueDate) return tag("未设置应收日", "warn");
   if (room.nextDueDate < today()) return tag("逾期未收", "danger room-overdue");
   if (room.nextDueDate <= addDays(today(), 7)) return tag("近期应收", "warn room-due-soon");
-  return tag("正常", "blue");
+  return tag("正常");
 }
 
 function statusTone(status) {
