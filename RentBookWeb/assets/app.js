@@ -2092,6 +2092,7 @@ $("#confirmOkBtn").addEventListener("click", (event) => {
 $("#uploadImageBtn").addEventListener("click", uploadRoomImage);
 $("#deleteImageBtn").addEventListener("click", deleteRoomImage);
 $("#roomImageInput").addEventListener("change", previewSelectedRoomImage);
+$("#roomImageInput").addEventListener("cancel", (event) => event.stopPropagation());
 $("#imageSelectBtn").addEventListener("click", openRoomImageFilePicker);
 $("#imageZoomRange").addEventListener("input", (event) => setRoomImageZoom(event.currentTarget.value));
 $("#imagePreview").addEventListener("wheel", handleRoomImageWheel, { passive: false });
@@ -2100,6 +2101,7 @@ document.querySelectorAll("[data-image-zoom]").forEach((button) => {
 });
 $("#imageCropReset").addEventListener("click", resetRoomImageCrop);
 $("#imageDialog").addEventListener("cancel", (event) => {
+  if (event.target !== event.currentTarget) return;
   event.preventDefault();
   closeImageDialog();
 });
