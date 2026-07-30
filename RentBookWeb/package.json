@@ -21,6 +21,7 @@
     "vite": "^5.4.11"
   },
   "dependencies": {
+    "cropperjs": "1.6.2",
     "lucide": "^1.27.0"
   }
 }

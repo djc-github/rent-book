@@ -4,11 +4,17 @@ import {
   DoorOpen,
   Ellipsis,
   House,
+  ImagePlus,
   Pencil,
+  RotateCcw,
   Settings,
   Trash2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide/dist/esm/lucide.mjs";
+import Cropper from "cropperjs";
+import "cropperjs/dist/cropper.css";
 
 const state = {
   view: "dashboard",
@@ -28,6 +34,11 @@ const state = {
   imageAction: "",
   imagePreviewUrl: "",
   imagePreviewName: "",
+  imageSourceFile: null,
+  imageCropper: null,
+  imageCropZoomBase: 0,
+  imageCropInitialCanvasData: null,
+  imageCropResetting: false,
   scrollLockY: 0,
   dueDateRoomId: null,
   settlementRoomId: null,
@@ -134,7 +145,20 @@ const $ = (selector) => document.querySelector(selector);
 const toastHomeParent = $("#toast").parentElement;
 const toastHomeNextSibling = $("#toast").nextSibling;
 let dialogOpenSequence = 0;
-const roomActionIcons = { CalendarClock, DoorOpen, Ellipsis, House, Pencil, Settings, Trash2, X };
+const roomActionIcons = {
+  CalendarClock,
+  DoorOpen,
+  Ellipsis,
+  House,
+  ImagePlus,
+  Pencil,
+  RotateCcw,
+  Settings,
+  Trash2,
+  X,
+  ZoomIn,
+  ZoomOut,
+};
 
 function renderIcons() {
   createIcons({ icons: roomActionIcons });
@@ -1001,20 +1025,147 @@ function updateImageDialog(room = findRecord("room", state.imageRoomId)) {
   $("#imageTitle").textContent = `${room.roomNo || ""} 房间图片`;
   const pending = Boolean(state.imagePreviewUrl);
   const image = state.imagePreviewUrl || (room.imageUrl ? mediaUrl(room.imageUrl) : "");
-  $("#imagePreview").innerHTML = image
-    ? `<img src="${esc(image)}" alt="${esc(room.roomNo || "房间")}图片">`
-    : `<div class="image-placeholder"><strong>还没有图片</strong><small>点这里添加房间照片</small></div>`;
+  renderImageWorkspace(room, image, pending);
+  const preview = $("#imagePreview");
+  const imageInput = $("#roomImageInput");
+  preview.classList.toggle("is-selectable", !pending && !state.imageUploading);
+  imageInput.classList.toggle("is-preview-trigger", !pending && !state.imageUploading);
+  imageInput.disabled = state.imageUploading;
+  imageInput.setAttribute("aria-label", room.imageUrl ? "更换房间图片" : "选择房间图片");
+  $("#imagePickerRow").classList.toggle("has-pending", pending);
+  $("#imageCropTools").hidden = !pending;
+  $("#imageCropHint").textContent = window.matchMedia("(pointer: coarse)").matches
+    ? "拖动图片调整位置，双指或滑杆缩放"
+    : "拖动图片调整位置，滚轮向上放大、向下缩小";
   $("#imagePickTitle").textContent = pending
     ? `已选择：${state.imagePreviewName || "新图片"}`
     : room.imageUrl ? "点这里更换图片" : "点这里添加图片";
-  $("#imagePickHint").textContent = pending ? "确认预览没问题后，点下方保存图片" : "支持 JPG、PNG、WEBP，单张不超过 5MB";
+  $("#imagePickHint").textContent = pending ? "裁剪框内的内容会显示到房间卡片" : "支持 JPG、PNG、WEBP，单张不超过 5MB";
+  $("#imageSelectBtn").innerHTML = `<i data-lucide="image-plus" aria-hidden="true"></i>${pending ? "重新选择" : room.imageUrl ? "更换图片" : "选择图片"}`;
+  $("#imageSelectBtn").disabled = state.imageUploading;
   $("#imagePendingNote").hidden = !pending;
+  $("#imagePendingNote").textContent = pending ? "调整完成后，点“保存图片”即可。" : "";
+  $("#imageZoomRange").disabled = state.imageUploading || !pending;
+  document.querySelectorAll("[data-image-zoom], #imageCropReset").forEach((button) => {
+    button.disabled = state.imageUploading || !pending;
+  });
   $("#deleteImageBtn").disabled = !room.imageId || state.imageUploading;
   $("#deleteImageBtn").textContent = state.imageUploading && state.imageAction === "delete" ? "删除中..." : "删除图片";
   $("#uploadImageBtn").disabled = state.imageUploading || !pending;
   $("#uploadImageBtn").textContent = state.imageUploading && state.imageAction === "upload"
     ? "保存中..."
-    : pending ? "保存图片" : "先选图片";
+    : state.imageUploading ? "正在处理..."
+      : pending ? "保存图片" : "先选图片";
+  renderIcons();
+}
+
+function renderImageWorkspace(room, image, pending) {
+  const preview = $("#imagePreview");
+  const sourceKey = `${pending ? "crop" : "preview"}:${image}`;
+  if (preview.dataset.sourceKey === sourceKey) return;
+  destroyRoomImageCropper();
+  preview.dataset.sourceKey = sourceKey;
+  preview.classList.toggle("is-cropping", pending);
+  preview.innerHTML = image
+    ? pending
+      ? `<img id="roomCropImage" src="${esc(image)}" alt="${esc(room.roomNo || "房间")}待裁剪图片">`
+      : `<img src="${esc(image)}" alt="${esc(room.roomNo || "房间")}图片">`
+    : `<div class="image-placeholder"><strong>还没有图片</strong><small>选择一张容易认出房间的照片</small></div>`;
+  if (pending) requestAnimationFrame(initRoomImageCropper);
+}
+
+function initRoomImageCropper() {
+  const image = $("#roomCropImage");
+  if (!image || !state.imagePreviewUrl) return;
+  destroyRoomImageCropper();
+  state.imageCropper = new Cropper(image, {
+    aspectRatio: 4 / 3,
+    viewMode: 3,
+    dragMode: "move",
+    autoCropArea: 1,
+    responsive: true,
+    restore: false,
+    background: false,
+    guides: false,
+    center: false,
+    highlight: false,
+    cropBoxMovable: false,
+    cropBoxResizable: false,
+    toggleDragModeOnDblclick: false,
+    movable: true,
+    zoomable: true,
+    zoomOnTouch: true,
+    zoomOnWheel: false,
+    ready() {
+      if (!state.imageCropper) return;
+      const imageData = state.imageCropper.getImageData();
+      const canvasData = state.imageCropper.getCanvasData();
+      const widthRatio = canvasData.width / imageData.naturalWidth;
+      const heightRatio = canvasData.height / imageData.naturalHeight;
+      state.imageCropZoomBase = Number.isFinite(widthRatio) && widthRatio > 0
+        ? widthRatio
+        : Number.isFinite(heightRatio) && heightRatio > 0 ? heightRatio : 1;
+      state.imageCropInitialCanvasData = {
+        left: canvasData.left,
+        top: canvasData.top,
+        width: canvasData.width,
+        height: canvasData.height,
+      };
+      state.imageCropResetting = false;
+      $("#imageZoomRange").value = "100";
+    },
+    zoom(event) {
+      if (!state.imageCropZoomBase || state.imageCropResetting) return;
+      const precisePercent = (event.detail.ratio / state.imageCropZoomBase) * 100;
+      if (precisePercent < 99.5 || precisePercent > 300.5) {
+        event.preventDefault();
+        return;
+      }
+      const percent = Math.min(300, Math.max(100, Math.round(precisePercent)));
+      $("#imageZoomRange").value = String(percent);
+    },
+  });
+}
+
+function destroyRoomImageCropper() {
+  state.imageCropper?.destroy();
+  state.imageCropper = null;
+  state.imageCropZoomBase = 0;
+  state.imageCropInitialCanvasData = null;
+  state.imageCropResetting = false;
+}
+
+function setRoomImageZoom(percent) {
+  if (!state.imageCropper || !state.imageCropZoomBase) return;
+  const parsedValue = Number(percent);
+  const value = Math.min(300, Math.max(100, Number.isFinite(parsedValue) ? parsedValue : 100));
+  $("#imageZoomRange").value = String(value);
+  state.imageCropper.zoomTo(state.imageCropZoomBase * value / 100);
+}
+
+function adjustRoomImageZoom(delta) {
+  setRoomImageZoom(Number($("#imageZoomRange").value || 100) + delta);
+}
+
+function handleRoomImageWheel(event) {
+  if (!state.imageCropper || !state.imageCropZoomBase) return;
+  event.preventDefault();
+  const direction = event.deltaY < 0 ? 1 : -1;
+  adjustRoomImageZoom(direction * 8);
+}
+
+function resetRoomImageCrop() {
+  if (!state.imageCropper) return;
+  const cropper = state.imageCropper;
+  const initialCanvasData = state.imageCropInitialCanvasData;
+  state.imageCropResetting = true;
+  cropper.reset();
+  if (initialCanvasData) cropper.setCanvasData(initialCanvasData);
+  cropper.zoomTo(state.imageCropZoomBase);
+  $("#imageZoomRange").value = "100";
+  requestAnimationFrame(() => {
+    if (state.imageCropper === cropper) state.imageCropResetting = false;
+  });
 }
 
 function applyRoomImage(roomId, image) {
@@ -1026,9 +1177,11 @@ function applyRoomImage(roomId, image) {
 }
 
 function resetPendingImage() {
+  destroyRoomImageCropper();
   if (state.imagePreviewUrl) URL.revokeObjectURL(state.imagePreviewUrl);
   state.imagePreviewUrl = "";
   state.imagePreviewName = "";
+  state.imageSourceFile = null;
 }
 
 function validateRoomImageFile(file) {
@@ -1051,23 +1204,62 @@ function previewSelectedRoomImage() {
   }
   state.imagePreviewUrl = URL.createObjectURL(file);
   state.imagePreviewName = file.name;
+  state.imageSourceFile = file;
   updateImageDialog();
+}
+
+function openRoomImageFilePicker() {
+  if (state.imageUploading) return;
+  const input = $("#roomImageInput");
+  input.value = "";
+  input.click();
+}
+
+function canvasToBlob(canvas, type, quality) {
+  return new Promise((resolve) => canvas.toBlob(resolve, type, quality));
+}
+
+async function createCroppedRoomImageFile() {
+  const source = state.imageSourceFile;
+  if (!source || !state.imageCropper) throw new Error("图片还没有准备好，请重新选择");
+  const canvas = state.imageCropper.getCroppedCanvas({
+    maxWidth: 1600,
+    maxHeight: 1200,
+    fillColor: "#ffffff",
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: "high",
+  });
+  if (!canvas) throw new Error("图片处理失败，请重新选择");
+  let blob = null;
+  for (const quality of [0.9, 0.82, 0.72]) {
+    blob = await canvasToBlob(canvas, "image/jpeg", quality);
+    if (blob && blob.size <= 5 * 1024 * 1024) break;
+  }
+  if (!blob) throw new Error("图片处理失败，请重新选择");
+  if (blob.size > 5 * 1024 * 1024) throw new Error("裁剪后的图片仍然太大，请换一张图片");
+  const baseName = (source.name || "room").replace(/\.[^.]+$/, "");
+  return new File([blob], `${baseName}-crop.jpg`, {
+    type: "image/jpeg",
+    lastModified: Date.now(),
+  });
 }
 
 async function uploadRoomImage() {
   if (state.imageUploading) return;
   const roomId = state.imageRoomId;
-  const file = $("#roomImageInput").files?.[0];
   if (!roomId) return showToast("这个房间可能已被删除，请刷新后再试");
-  if (!file) return showToast("请先选择图片");
-  const message = validateRoomImageFile(file);
-  if (message) return showToast(message);
-  const formData = new FormData();
-  formData.append("file", file);
+  if (!state.imageSourceFile) return showToast("请先选择图片");
   state.imageUploading = true;
-  state.imageAction = "upload";
+  state.imageAction = "crop";
   updateImageDialog();
   try {
+    const file = await createCroppedRoomImageFile();
+    const message = validateRoomImageFile(file);
+    if (message) throw new Error(message);
+    const formData = new FormData();
+    formData.append("file", file);
+    state.imageAction = "upload";
+    updateImageDialog();
     const image = await apiForm(`/api/properties/rooms/${roomId}/images`, formData);
     applyRoomImage(roomId, image);
     resetPendingImage();
@@ -1871,6 +2063,17 @@ $("#confirmOkBtn").addEventListener("click", (event) => {
 $("#uploadImageBtn").addEventListener("click", uploadRoomImage);
 $("#deleteImageBtn").addEventListener("click", deleteRoomImage);
 $("#roomImageInput").addEventListener("change", previewSelectedRoomImage);
+$("#imageSelectBtn").addEventListener("click", openRoomImageFilePicker);
+$("#imageZoomRange").addEventListener("input", (event) => setRoomImageZoom(event.currentTarget.value));
+$("#imagePreview").addEventListener("wheel", handleRoomImageWheel, { passive: false });
+document.querySelectorAll("[data-image-zoom]").forEach((button) => {
+  button.addEventListener("click", () => adjustRoomImageZoom(Number(button.dataset.imageZoom)));
+});
+$("#imageCropReset").addEventListener("click", resetRoomImageCrop);
+$("#imageDialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeImageDialog();
+});
 $("#roomActionsDialog").addEventListener("cancel", (event) => {
   event.preventDefault();
   closeRoomActions();

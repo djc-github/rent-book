@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小胡收租簿</title>
-  <link rel="stylesheet" href="./assets/app.css?v=20260726-5">
+  <link rel="stylesheet" href="./assets/app.css?v=20260730-4">
 </head>
 <body>
   <aside class="sidebar">
@@ -186,14 +186,42 @@
         <button type="button" class="icon-btn" data-close-image aria-label="关闭">×</button>
       </header>
       <div class="image-body">
-        <label class="image-picker">
+        <div class="image-preview-shell">
           <div id="imagePreview" class="image-preview"></div>
-          <input id="roomImageInput" type="file" accept="image/jpeg,image/png,image/webp">
+          <input
+            id="roomImageInput"
+            class="image-file-input"
+            type="file"
+            accept="image/jpeg,image/png,image/webp"
+            aria-label="选择房间图片"
+          >
+        </div>
+        <div id="imageCropTools" class="image-crop-tools" hidden>
+          <p id="imageCropHint" class="image-crop-hint">拖动图片调整位置，滚轮或滑杆缩放</p>
+          <div class="image-zoom-row">
+            <button type="button" class="icon-btn" data-image-zoom="-10" aria-label="缩小图片" title="缩小">
+              <i data-lucide="zoom-out" aria-hidden="true"></i>
+            </button>
+            <input id="imageZoomRange" type="range" min="100" max="300" step="1" value="100" aria-label="图片缩放">
+            <button type="button" class="icon-btn" data-image-zoom="10" aria-label="放大图片" title="放大">
+              <i data-lucide="zoom-in" aria-hidden="true"></i>
+            </button>
+            <button type="button" class="ghost image-reset-button" id="imageCropReset">
+              <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+              还原
+            </button>
+          </div>
+        </div>
+        <div id="imagePickerRow" class="image-picker-row">
           <span class="image-picker-copy">
             <strong id="imagePickTitle">点这里选择图片</strong>
             <small id="imagePickHint">支持 JPG、PNG、WEBP，单张不超过 5MB</small>
           </span>
-        </label>
+          <button type="button" class="ghost image-select-button" id="imageSelectBtn">
+            <i data-lucide="image-plus" aria-hidden="true"></i>
+            选择图片
+          </button>
+        </div>
         <p id="imagePendingNote" class="image-pending-note" hidden>已选好，点“保存图片”后会显示到房间卡片。</p>
       </div>
       <footer class="image-actions">
@@ -219,6 +247,6 @@
     </section>
   </dialog>
 
-  <script type="module" src="./assets/app.js?v=20260726-5"></script>
+  <script type="module" src="./assets/app.js?v=20260730-4"></script>
 </body>
 </html>
