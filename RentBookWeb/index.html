@@ -204,6 +204,21 @@
     </form>
   </dialog>
 
+  <dialog id="roomActionsDialog" class="room-actions-dialog" aria-labelledby="roomActionsTitle">
+    <section class="room-actions-sheet">
+      <header>
+        <h2 id="roomActionsTitle">更多操作</h2>
+        <button type="button" class="icon-btn" data-close-room-actions aria-label="关闭更多操作">
+          <i data-lucide="x" aria-hidden="true"></i>
+        </button>
+      </header>
+      <div id="roomActionsBody" class="room-actions-list" role="menu"></div>
+      <footer>
+        <button type="button" class="ghost" data-close-room-actions>取消</button>
+      </footer>
+    </section>
+  </dialog>
+
   <script type="module" src="./assets/app.js?v=20260726-5"></script>
 </body>
 </html>

@@ -566,6 +566,118 @@ tr:last-child td { border-bottom: 0; }
 .room-main small {
   flex-basis: 100%;
 }
+.room-price,
+.room-next-due {
+  font-variant-numeric: tabular-nums;
+}
+.room-card-actions {
+  display: grid;
+  grid-template-columns: minmax(112px, 1fr) 42px;
+  gap: 8px;
+  align-items: center;
+  min-width: 202px;
+}
+.room-card-actions .mini {
+  min-height: 40px;
+}
+.room-primary-action {
+  width: 100%;
+}
+.room-more-button {
+  width: 42px;
+  min-width: 42px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.room-more-button .lucide {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.2;
+}
+
+.room-actions-dialog {
+  position: fixed;
+  top: var(--room-actions-top, 12px);
+  right: auto;
+  bottom: auto;
+  left: var(--room-actions-left, 12px);
+  width: 240px;
+  max-width: calc(100vw - 24px);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  overflow: visible;
+}
+.room-actions-dialog::backdrop {
+  background: rgba(15, 31, 36, .12);
+}
+.room-actions-sheet {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: white;
+  box-shadow: 0 14px 36px rgba(24, 47, 52, .2);
+}
+.room-actions-sheet header {
+  min-height: 50px;
+  padding: 8px 10px 8px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.room-actions-sheet h2 {
+  margin: 0;
+  font-size: 16px;
+}
+.room-actions-sheet .icon-btn {
+  min-height: 36px;
+}
+.room-actions-sheet .icon-btn .lucide {
+  width: 18px;
+  height: 18px;
+}
+.room-actions-list {
+  padding: 5px;
+}
+.room-action-item {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 11px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.room-action-item:hover,
+.room-action-item:focus-visible {
+  background: #f1f6f5;
+}
+.room-action-item .lucide {
+  width: 19px;
+  height: 19px;
+  color: var(--muted);
+}
+.room-action-item.danger {
+  margin-top: 5px;
+  border-top: 1px solid var(--line);
+  border-radius: 0 0 6px 6px;
+  color: var(--danger);
+}
+.room-action-item.danger .lucide {
+  color: currentColor;
+}
+.room-actions-sheet footer {
+  display: none;
+}
 
 .searchbar {
   display: flex;
@@ -1612,12 +1724,13 @@ small {
     grid-template-columns: 1fr;
   }
   .room-row {
-    grid-template-columns: 78px minmax(0, 1fr);
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 10px;
     align-items: start;
     padding: 12px;
   }
   .room-photo {
-    width: 78px;
+    width: 76px;
     max-height: none;
     align-self: start;
   }
@@ -1631,18 +1744,71 @@ small {
   }
   .room-main small {
     grid-column: 1 / -1;
+    font-size: 12px;
+    line-height: 1.35;
   }
-  .room-row .row-actions {
+  .room-lease-period,
+  .room-next-due {
+    font-size: 11px;
+    white-space: nowrap;
+  }
+  .room-card-actions {
     display: grid;
     grid-column: 1 / -1;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr) 44px;
+    gap: 8px;
+    min-width: 0;
     width: 100%;
   }
-  .room-row .row-actions .mini {
-    min-height: 38px;
+  .room-card-actions .mini {
+    min-height: 42px;
   }
-  .room-row .row-actions .mini.settle {
-    grid-column: 1 / -1;
+  .room-more-button {
+    width: 44px;
+    min-width: 44px;
+  }
+  .room-actions-dialog {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    max-width: 100%;
+    border-radius: 8px 8px 0 0;
+  }
+  .room-actions-dialog::backdrop {
+    background: rgba(15, 31, 36, .38);
+  }
+  .room-actions-sheet {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 8px 8px 0 0;
+    box-shadow: 0 -12px 32px rgba(24, 47, 52, .18);
+  }
+  .room-actions-sheet header {
+    min-height: 54px;
+    padding: 8px 12px 8px 16px;
+  }
+  .room-actions-sheet h2 {
+    font-size: 18px;
+  }
+  .room-actions-list {
+    padding: 4px 10px;
+  }
+  .room-action-item {
+    min-height: 48px;
+    padding: 0 12px;
+    font-size: 15px;
+  }
+  .room-actions-sheet footer {
+    padding: 8px 12px 0;
+    display: block;
+  }
+  .room-actions-sheet footer button {
+    width: 100%;
+    min-height: 44px;
   }
   .modal {
     width: 100vw;

@@ -7,9 +7,9 @@
     "config:local": "node scripts/use-config.mjs local",
     "config:test": "node scripts/use-config.mjs test",
     "config:prod": "node scripts/use-config.mjs prod",
-    "dev": "pnpm config:local && vite --host 0.0.0.0 --port 5173",
-    "dev:test": "pnpm config:test && vite --host 0.0.0.0 --port 5173",
-    "dev:prod": "pnpm config:prod && vite --host 0.0.0.0 --port 5173",
+    "dev": "pnpm config:local && vite --host 0.0.0.0 --port 5173 --strictPort",
+    "dev:test": "pnpm config:test && vite --host 0.0.0.0 --port 5173 --strictPort",
+    "dev:prod": "pnpm config:prod && vite --host 0.0.0.0 --port 5173 --strictPort",
     "build": "pnpm build:prod",
     "build:local": "pnpm config:local && vite build",
     "build:test": "pnpm config:test && vite build",
@@ -19,5 +19,8 @@
   },
   "devDependencies": {
     "vite": "^5.4.11"
+  },
+  "dependencies": {
+    "lucide": "^1.27.0"
   }
 }

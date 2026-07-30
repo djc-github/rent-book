@@ -1,3 +1,15 @@
+import {
+  CalendarClock,
+  createIcons,
+  DoorOpen,
+  Ellipsis,
+  House,
+  Pencil,
+  Settings,
+  Trash2,
+  X,
+} from "lucide/dist/esm/lucide.mjs";
+
 const state = {
   view: "dashboard",
   data: {},
@@ -21,6 +33,8 @@ const state = {
   settlementRoomId: null,
   settlementPreview: null,
   settlementPreviewRequest: 0,
+  roomActionsRoomId: null,
+  roomActionsAnchor: null,
   loadErrors: {},
 };
 
@@ -120,6 +134,12 @@ const $ = (selector) => document.querySelector(selector);
 const toastHomeParent = $("#toast").parentElement;
 const toastHomeNextSibling = $("#toast").nextSibling;
 let dialogOpenSequence = 0;
+const roomActionIcons = { CalendarClock, DoorOpen, Ellipsis, House, Pencil, Settings, Trash2, X };
+
+function renderIcons() {
+  createIcons({ icons: roomActionIcons });
+}
+
 const toYmd = (date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -647,6 +667,7 @@ function render() {
   renderPropertyAlphabet();
   scheduleRoomImages();
   schedulePropertyContextSync();
+  renderIcons();
 }
 
 function renderDashboard(data) {
@@ -767,12 +788,12 @@ function roomCard(room, propertyTone = 0) {
   const due = room.status === "RENTED" ? dueTag(room) : tag(statusText[room.status] || room.status, statusTone(room.status));
   const image = roomCardImageUrl(room);
   const fallbackImage = roomCardOriginalImageUrl(room) || image;
-  const actions = room.status === "RENTED"
-    ? `${collectButton(room)}
-      <button class="mini ghost" data-form="rent" data-id="${room.id}">收租设置</button>
-      <button class="mini settle" data-settle-room="${room.id}">退租</button>`
-    : `<button class="mini primary" data-form="rent" data-id="${room.id}">出租</button>
-      <button class="mini" data-room-status="${room.id}:${room.status === "RESERVED" ? "VACANT" : "RESERVED"}">${room.status === "RESERVED" ? "空置" : "预定"}</button>`;
+  const cycleMonths = Number(room.payCycleMonths || 1);
+  const cycleText = room.status === "RENTED" ? ` · ${cycleMonths}个月一收` : "";
+  const receivableAmount = room.receivableAmount ?? Number(room.rentAmount || 0) * cycleMonths;
+  const primaryAction = room.status === "RENTED"
+    ? collectButton(room, "room-primary-action")
+    : `<button class="mini primary room-primary-action" data-form="rent" data-id="${room.id}">出租</button>`;
   return `<article class="room-row property-room-tone-${propertyTone} status-${room.status || "UNKNOWN"}">
     <button class="room-photo ${image ? "has-image" : "empty"}" data-room-image="${room.id}" aria-label="${image ? "查看或更换房间图片" : "添加房间图片"}">
       ${image ? `<span class="room-photo-placeholder">图片加载中</span><img data-room-card-image data-src="${esc(image)}" data-fallback-src="${esc(fallbackImage)}" alt="${esc(room.roomNo)}房间图片" decoding="async">` : `<span>添加图片</span>`}
@@ -780,17 +801,94 @@ function roomCard(room, propertyTone = 0) {
     <div class="room-main">
       <strong>${esc(room.roomNo)}</strong>
       <span>${due}</span>
-      <small>${fmtMoney(room.rentAmount)} / 押${Number(room.depositAmount || 0).toLocaleString("zh-CN")}</small>
-      ${room.leaseStartDate && room.leaseEndDate ? `<small>租期：${esc(room.leaseStartDate)} 至 ${esc(room.leaseEndDate)}</small>` : ""}
-      ${room.nextDueDate ? `<small>下次收租：${esc(room.nextDueDate)}，${room.payCycleMonths || 1}个月一收</small>` : ""}
+      <small class="room-price">${fmtMoney(room.rentAmount)} / 押${Number(room.depositAmount || 0).toLocaleString("zh-CN")}${cycleText}</small>
+      ${room.leaseStartDate && room.leaseEndDate ? `<small class="room-lease-period">租期：${esc(room.leaseStartDate)} 至 ${esc(room.leaseEndDate)}</small>` : ""}
+      ${room.nextDueDate ? `<small class="room-next-due">下次 ${esc(room.nextDueDate)} 应收 ${fmtMoney(receivableAmount)}</small>` : ""}
       ${room.nextPeriodStartDate && room.nextPeriodStartDate !== room.nextDueDate ? `<small>下次租金从：${esc(room.nextPeriodStartDate)} 起</small>` : ""}
     </div>
-    <div class="row-actions">
-      ${actions}
-      <button class="mini ghost" data-form="room" data-id="${room.id}">编辑</button>
-      <button class="mini danger" data-delete="room:${room.id}">删除</button>
+    <div class="room-card-actions">
+      ${primaryAction}
+      <button class="mini ghost room-more-button" data-room-more="${room.id}" aria-label="${esc(room.roomNo)}更多操作"
+        aria-haspopup="menu" aria-controls="roomActionsDialog" aria-expanded="false" title="更多操作">
+        <i data-lucide="ellipsis" aria-hidden="true"></i>
+      </button>
     </div>
   </article>`;
+}
+
+function roomActionItem(icon, label, attributes, tone = "") {
+  return `<button type="button" class="room-action-item ${tone}" ${attributes}>
+    <i data-lucide="${icon}" aria-hidden="true"></i>
+    <span>${label}</span>
+  </button>`;
+}
+
+function renderRoomActionItems(room) {
+  const editAction = roomActionItem("pencil", "编辑房间", `data-form="room" data-id="${room.id}"`);
+  const deleteAction = roomActionItem("trash-2", "删除房间", `data-delete="room:${room.id}"`, "danger");
+  if (room.status === "RENTED") {
+    return `
+      ${roomActionItem("settings", "收租设置", `data-form="rent" data-id="${room.id}"`)}
+      ${editAction}
+      ${roomActionItem("door-open", "退租", `data-settle-room="${room.id}"`)}
+      ${deleteAction}`;
+  }
+  const targetStatus = room.status === "RESERVED" ? "VACANT" : "RESERVED";
+  const statusLabel = targetStatus === "VACANT" ? "空置" : "预定";
+  const statusIcon = targetStatus === "VACANT" ? "house" : "calendar-clock";
+  return `
+    ${roomActionItem(statusIcon, statusLabel, `data-room-status="${room.id}:${targetStatus}"`)}
+    ${editAction}
+    ${deleteAction}`;
+}
+
+function openRoomActions(roomId, anchorButton) {
+  const room = findRecord("room", roomId);
+  if (!room.id) return showToast("这个房间可能已被删除，请刷新后再试");
+  const dialog = $("#roomActionsDialog");
+  if (dialog.open) closeRoomActions();
+
+  state.roomActionsRoomId = Number(roomId);
+  state.roomActionsAnchor = anchorButton;
+  anchorButton.setAttribute("aria-expanded", "true");
+  $("#roomActionsTitle").textContent = `${room.roomNo || "房间"} · 更多操作`;
+  $("#roomActionsBody").innerHTML = renderRoomActionItems(room);
+
+  if (!window.matchMedia("(max-width: 620px)").matches) {
+    const anchorRect = anchorButton.getBoundingClientRect();
+    const menuWidth = 240;
+    const menuHeight = room.status === "RENTED" ? 252 : 204;
+    const left = Math.min(window.innerWidth - menuWidth - 12, Math.max(12, anchorRect.right - menuWidth));
+    const top = anchorRect.bottom + menuHeight + 8 <= window.innerHeight
+      ? anchorRect.bottom + 8
+      : Math.max(12, anchorRect.top - menuHeight - 8);
+    dialog.style.setProperty("--room-actions-left", `${left}px`);
+    dialog.style.setProperty("--room-actions-top", `${top}px`);
+  }
+
+  showLockedDialog(dialog);
+  renderIcons();
+}
+
+function closeRoomActions() {
+  const dialog = $("#roomActionsDialog");
+  state.roomActionsAnchor?.setAttribute("aria-expanded", "false");
+  state.roomActionsRoomId = null;
+  state.roomActionsAnchor = null;
+  dialog.style.removeProperty("--room-actions-left");
+  dialog.style.removeProperty("--room-actions-top");
+  if (dialog.open) closeDialog(dialog);
+}
+
+function runRoomAction(button) {
+  closeRoomActions();
+  if (button.matches("[data-form]")) return openFormFromButton(button);
+  if (button.matches("[data-settle-room]")) return openSettlementDialog(button.dataset.settleRoom);
+  if (button.matches("[data-room-status]")) {
+    const [roomId, status] = button.dataset.roomStatus.split(":");
+    return requestRoomStatus(roomId, status);
+  }
+  if (button.matches("[data-delete]")) return requestDelete(button.dataset.delete);
 }
 
 function renderPaymentRecords(rows) {
@@ -1121,12 +1219,12 @@ function collectInfo(room) {
   };
 }
 
-function collectButton(room) {
+function collectButton(room, extraClass = "") {
   const info = collectInfo(room);
   if (!info.enabled) {
-    return `<button class="mini ghost collect-disabled" disabled title="${esc(info.reason)}">${esc(info.label || "暂不可收")}</button>`;
+    return `<button class="mini ghost collect-disabled ${extraClass}" disabled title="${esc(info.reason)}">${esc(info.label || "暂不可收")}</button>`;
   }
-  return `<button class="mini primary" data-request-collect="${info.id}">${info.label}</button>`;
+  return `<button class="mini primary ${extraClass}" data-request-collect="${info.id}">${info.label}</button>`;
 }
 
 function getCollectRoom(roomId) {
@@ -1760,6 +1858,7 @@ document.querySelectorAll("[data-cancel-confirm]").forEach((button) => button.ad
 document.querySelectorAll("[data-close-due-date]").forEach((button) => button.addEventListener("click", closeDueDateDialog));
 document.querySelectorAll("[data-close-settlement]").forEach((button) => button.addEventListener("click", closeSettlementDialog));
 document.querySelectorAll("[data-close-image]").forEach((button) => button.addEventListener("click", closeImageDialog));
+document.querySelectorAll("[data-close-room-actions]").forEach((button) => button.addEventListener("click", closeRoomActions));
 document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("close", () => {
   delete dialog.dataset.openSequence;
   syncToastLayer();
@@ -1772,6 +1871,15 @@ $("#confirmOkBtn").addEventListener("click", (event) => {
 $("#uploadImageBtn").addEventListener("click", uploadRoomImage);
 $("#deleteImageBtn").addEventListener("click", deleteRoomImage);
 $("#roomImageInput").addEventListener("change", previewSelectedRoomImage);
+$("#roomActionsDialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closeRoomActions();
+});
+$("#roomActionsDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) return closeRoomActions();
+  const actionButton = event.target.closest(".room-action-item");
+  if (actionButton) return runRoomAction(actionButton);
+});
 
 $("#content").addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view-go]");
@@ -1782,6 +1890,8 @@ $("#content").addEventListener("click", (event) => {
   if (event.target.closest("[data-load-payments]")) return loadPayments();
   const imageButton = event.target.closest("[data-room-image]");
   if (imageButton) return openImageDialog(imageButton.dataset.roomImage);
+  const moreButton = event.target.closest("[data-room-more]");
+  if (moreButton) return openRoomActions(moreButton.dataset.roomMore, moreButton);
   const formButton = event.target.closest("[data-form]");
   if (formButton) return openFormFromButton(formButton);
   const collectButton = event.target.closest("[data-request-collect]");
