@@ -1066,11 +1066,14 @@ function updateImageDialog(room = findRecord("room", state.imageRoomId)) {
   $("#imageCropHint").textContent = window.matchMedia("(pointer: coarse)").matches
     ? "拖动图片调整位置，双指或滑杆缩放"
     : "拖动图片调整位置，滚轮向上放大、向下缩小";
-  $("#imagePickTitle").textContent = pending
-    ? `已选择：${state.imagePreviewName || "新图片"}`
-    : room.imageUrl ? "点这里更换图片" : "点这里添加图片";
-  $("#imagePickHint").textContent = pending ? "裁剪框内的内容会显示到房间卡片" : "支持 JPG、PNG、WEBP，单张不超过 5MB";
+  const imagePickTitle = $("#imagePickTitle");
+  imagePickTitle.hidden = !pending;
+  imagePickTitle.textContent = pending ? `已选择：${state.imagePreviewName || "新图片"}` : "";
+  $("#imagePickHint").textContent = pending
+    ? "裁剪框内的内容会显示到房间卡片"
+    : "JPG / PNG / WEBP · 单张不超过 5MB";
   $("#imageSelectBtn").innerHTML = `<i data-lucide="image-plus" aria-hidden="true"></i>${pending ? "重新选择" : room.imageUrl ? "更换图片" : "选择图片"}`;
+  $("#imageSelectBtn").hidden = !pending;
   $("#imageSelectBtn").disabled = state.imageUploading;
   $("#imagePendingNote").hidden = !pending;
   $("#imagePendingNote").textContent = pending ? "调整完成后，点“保存图片”即可。" : "";
@@ -1099,7 +1102,11 @@ function renderImageWorkspace(room, image, pending) {
     ? pending
       ? `<img id="roomCropImage" src="${esc(image)}" alt="${esc(room.roomNo || "房间")}待裁剪图片">`
       : `<img src="${esc(image)}" alt="${esc(room.roomNo || "房间")}图片">`
-    : `<div class="image-placeholder"><strong>还没有图片</strong><small>选择一张容易认出房间的照片</small></div>`;
+    : `<div class="image-placeholder">
+        <i data-lucide="image-plus" aria-hidden="true"></i>
+        <strong>添加房间图片</strong>
+        <small>选择一张容易认出房间的照片</small>
+      </div>`;
   if (pending) requestAnimationFrame(initRoomImageCropper);
 }
 
