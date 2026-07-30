@@ -818,6 +818,7 @@ function roomCard(room, propertyTone = 0) {
   const primaryAction = room.status === "RENTED"
     ? collectButton(room, "room-primary-action")
     : `<button class="mini primary room-primary-action" data-form="rent" data-id="${room.id}">出租</button>`;
+  const desktopActions = roomSecondaryActions(room).map(roomDesktopActionItem).join("");
   return `<article class="room-row property-room-tone-${propertyTone} status-${room.status || "UNKNOWN"}">
     <button class="room-photo ${image ? "has-image" : "empty"}" data-room-image="${room.id}" aria-label="${image ? "查看或更换房间图片" : "添加房间图片"}">
       ${image ? `<span class="room-photo-placeholder">图片加载中</span><img data-room-card-image data-src="${esc(image)}" data-fallback-src="${esc(fallbackImage)}" alt="${esc(room.roomNo)}房间图片" decoding="async">` : `<span>添加图片</span>`}
@@ -830,6 +831,10 @@ function roomCard(room, propertyTone = 0) {
       ${room.nextDueDate ? `<small class="room-next-due">下次 ${esc(room.nextDueDate)} 应收 ${fmtMoney(receivableAmount)}</small>` : ""}
       ${room.nextPeriodStartDate && room.nextPeriodStartDate !== room.nextDueDate ? `<small>下次租金从：${esc(room.nextPeriodStartDate)} 起</small>` : ""}
     </div>
+    <div class="room-desktop-actions" aria-label="${esc(room.roomNo)}房间操作">
+      ${primaryAction}
+      ${desktopActions}
+    </div>
     <div class="room-card-actions">
       ${primaryAction}
       <button class="mini ghost room-more-button" data-room-more="${room.id}" aria-label="${esc(room.roomNo)}更多操作"
@@ -840,30 +845,54 @@ function roomCard(room, propertyTone = 0) {
   </article>`;
 }
 
-function roomActionItem(icon, label, attributes, tone = "") {
-  return `<button type="button" class="room-action-item ${tone}" ${attributes}>
-    <i data-lucide="${icon}" aria-hidden="true"></i>
-    <span>${label}</span>
+function roomSecondaryActions(room) {
+  const editAction = {
+    icon: "pencil",
+    label: "编辑房间",
+    desktopLabel: "编辑",
+    attributes: `data-form="room" data-id="${room.id}"`,
+  };
+  const deleteAction = {
+    icon: "trash-2",
+    label: "删除房间",
+    desktopLabel: "删除",
+    attributes: `data-delete="room:${room.id}"`,
+    tone: "danger",
+  };
+  if (room.status === "RENTED") {
+    return [
+      { icon: "settings", label: "收租设置", attributes: `data-form="rent" data-id="${room.id}"` },
+      editAction,
+      { icon: "door-open", label: "退租", attributes: `data-settle-room="${room.id}"`, tone: "settle" },
+      deleteAction,
+    ];
+  }
+  const targetStatus = room.status === "RESERVED" ? "VACANT" : "RESERVED";
+  return [
+    {
+      icon: targetStatus === "VACANT" ? "house" : "calendar-clock",
+      label: targetStatus === "VACANT" ? "空置" : "预定",
+      attributes: `data-room-status="${room.id}:${targetStatus}"`,
+    },
+    editAction,
+    deleteAction,
+  ];
+}
+
+function roomActionItem(action) {
+  const tone = action.tone === "danger" ? "danger" : "";
+  return `<button type="button" class="room-action-item ${tone}" ${action.attributes}>
+    <i data-lucide="${action.icon}" aria-hidden="true"></i>
+    <span>${action.label}</span>
   </button>`;
 }
 
+function roomDesktopActionItem(action) {
+  return `<button type="button" class="mini ${action.tone || "ghost"}" ${action.attributes}>${action.desktopLabel || action.label}</button>`;
+}
+
 function renderRoomActionItems(room) {
-  const editAction = roomActionItem("pencil", "编辑房间", `data-form="room" data-id="${room.id}"`);
-  const deleteAction = roomActionItem("trash-2", "删除房间", `data-delete="room:${room.id}"`, "danger");
-  if (room.status === "RENTED") {
-    return `
-      ${roomActionItem("settings", "收租设置", `data-form="rent" data-id="${room.id}"`)}
-      ${editAction}
-      ${roomActionItem("door-open", "退租", `data-settle-room="${room.id}"`)}
-      ${deleteAction}`;
-  }
-  const targetStatus = room.status === "RESERVED" ? "VACANT" : "RESERVED";
-  const statusLabel = targetStatus === "VACANT" ? "空置" : "预定";
-  const statusIcon = targetStatus === "VACANT" ? "house" : "calendar-clock";
-  return `
-    ${roomActionItem(statusIcon, statusLabel, `data-room-status="${room.id}:${targetStatus}"`)}
-    ${editAction}
-    ${deleteAction}`;
+  return roomSecondaryActions(room).map(roomActionItem).join("");
 }
 
 function openRoomActions(roomId, anchorButton) {
