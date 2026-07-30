@@ -6,6 +6,7 @@ import {
   House,
   ImagePlus,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Settings,
   Trash2,
@@ -96,6 +97,8 @@ const roomStatusSearchTerms = {
 
 const PROPERTY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTWXYZ#".split("");
 const PROPERTY_SEARCH_TARGET = "SEARCH";
+const MOBILE_HEADER_COLLAPSE_Y = 44;
+const MOBILE_HEADER_EXPAND_Y = 8;
 const PROPERTY_PINYIN_BOUNDARIES = [
   ["A", "阿"], ["B", "八"], ["C", "擦"], ["D", "搭"], ["E", "蛾"], ["F", "发"],
   ["G", "噶"], ["H", "哈"], ["J", "击"], ["K", "喀"], ["L", "拉"], ["M", "妈"],
@@ -113,6 +116,7 @@ const propertyPinyinCollator = (() => {
 let propertyAlphabetDragging = false;
 let propertyAlphabetPreviewTimer = 0;
 let propertyAlphabetPreviewShownAt = 0;
+let mobileHeaderCompact = false;
 
 const demo = {
   dashboard: {
@@ -152,6 +156,7 @@ const roomActionIcons = {
   House,
   ImagePlus,
   Pencil,
+  RefreshCw,
   RotateCcw,
   Settings,
   Trash2,
@@ -529,21 +534,46 @@ function hidePropertyAlphabetPreview() {
   preview.setAttribute("aria-hidden", "true");
 }
 
+function stickyTopForJumpTarget(target) {
+  const sidebar = $(".sidebar");
+  if (!window.matchMedia("(max-width: 620px)").matches) return Math.ceil(sidebar?.getBoundingClientRect().height || 0);
+  const targetTop = window.scrollY + target.getBoundingClientRect().top;
+  if (targetTop <= MOBILE_HEADER_COLLAPSE_Y) return Math.ceil(sidebar?.getBoundingClientRect().height || 0);
+  setMobileHeaderCompact(true);
+  const compactHeight = Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue("--mobile-compact-header-height"),
+  );
+  return Math.ceil(Number.isFinite(compactHeight) ? compactHeight : 53);
+}
+
+function schedulePropertyJumpAlignment(target, smooth) {
+  window.clearTimeout(schedulePropertyJumpAlignment.timer);
+  schedulePropertyJumpAlignment.timer = window.setTimeout(() => {
+    if (!target?.isConnected) return;
+    const stickyTop = Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0);
+    const delta = target.getBoundingClientRect().top - stickyTop - 8;
+    if (Math.abs(delta) > 2) window.scrollBy({ top: delta, left: 0, behavior: "auto" });
+    schedulePropertyContextSync();
+  }, smooth ? 480 : 230);
+}
+
 function jumpToPropertyLetter(letter, smooth = false) {
   showPropertyAlphabetPreview(letter, smooth);
   const target = document.querySelector(`.property-group[data-property-initial="${letter}"]`);
   if (!target) return;
-  const stickyTop = Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0);
+  const stickyTop = stickyTopForJumpTarget(target);
   const top = window.scrollY + target.getBoundingClientRect().top - stickyTop - 8;
   window.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+  schedulePropertyJumpAlignment(target, smooth);
 }
 
 function jumpToPropertySearch(smooth = true) {
   const target = document.querySelector(".toolbar-panel");
   if (!target) return;
-  const stickyTop = Math.ceil($(".sidebar")?.getBoundingClientRect().height || 0);
+  const stickyTop = stickyTopForJumpTarget(target);
   const top = window.scrollY + target.getBoundingClientRect().top - stickyTop - 8;
   window.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+  schedulePropertyJumpAlignment(target, smooth);
 }
 
 function propertyLetterAtPoint(clientX, clientY) {
@@ -601,6 +631,34 @@ function syncPropertyContexts() {
 function schedulePropertyContextSync() {
   window.cancelAnimationFrame(schedulePropertyContextSync.frame);
   schedulePropertyContextSync.frame = window.requestAnimationFrame(syncPropertyContexts);
+}
+
+function setMobileHeaderCompact(compact) {
+  const nextCompact = Boolean(compact);
+  const sidebar = $(".sidebar");
+  const alreadySynced = mobileHeaderCompact === nextCompact
+    && sidebar?.classList.contains("is-compact") === nextCompact;
+  if (!sidebar || alreadySynced) return false;
+  mobileHeaderCompact = nextCompact;
+  sidebar.classList.toggle("is-compact", nextCompact);
+  return true;
+}
+
+function syncMobileHeader() {
+  const mobile = window.matchMedia("(max-width: 620px)").matches;
+  const scrollTop = window.scrollY || document.documentElement.scrollTop || 0;
+  const compact = mobile
+    ? mobileHeaderCompact ? scrollTop > MOBILE_HEADER_EXPAND_Y : scrollTop > MOBILE_HEADER_COLLAPSE_Y
+    : false;
+  if (!setMobileHeaderCompact(compact)) return;
+  schedulePropertyContextSync();
+  window.clearTimeout(syncMobileHeader.settleTimer);
+  syncMobileHeader.settleTimer = window.setTimeout(schedulePropertyContextSync, 220);
+}
+
+function scheduleMobileHeaderSync() {
+  window.cancelAnimationFrame(scheduleMobileHeaderSync.frame);
+  scheduleMobileHeaderSync.frame = window.requestAnimationFrame(syncMobileHeader);
 }
 
 async function loadRuntimeConfig() {
@@ -1962,7 +2020,11 @@ function setBusy(busy) {
   [$("#refreshBtn"), $("#mobileRefreshBtn")].forEach((refresh) => {
     if (!refresh) return;
     refresh.disabled = busy;
-    refresh.textContent = busy ? "刷新中..." : "刷新";
+    refresh.classList.toggle("is-refreshing", busy);
+    refresh.setAttribute("aria-label", busy ? "正在刷新当前页面" : "刷新当前页面");
+    const label = refresh.querySelector("[data-refresh-label]");
+    if (label) label.textContent = busy ? "刷新中" : "刷新";
+    else refresh.textContent = busy ? "刷新中..." : "刷新";
   });
 }
 
@@ -2039,6 +2101,7 @@ function resetViewScroll() {
   window.scrollTo({ top: 0, left: 0, behavior: "auto" });
   document.documentElement.scrollTop = 0;
   document.body.scrollTop = 0;
+  setMobileHeaderCompact(false);
 }
 
 async function goView(view) {
@@ -2180,10 +2243,16 @@ $("#content").addEventListener("compositionend", (event) => {
 });
 
 window.addEventListener("scroll", schedulePropertyContextSync, { passive: true });
+window.addEventListener("scroll", scheduleMobileHeaderSync, { passive: true });
 window.addEventListener("resize", schedulePropertyContextSync, { passive: true });
+window.addEventListener("resize", scheduleMobileHeaderSync, { passive: true });
+$(".sidebar").addEventListener("transitionend", schedulePropertyContextSync);
 $("#propertyAlphabetIndex").addEventListener("pointerdown", (event) => {
   if (event.pointerType === "mouse" && event.button !== 0) return;
-  const letter = propertyLetterAtPoint(event.clientX, event.clientY);
+  const letter = event.target.closest("[data-property-search]")
+    ? PROPERTY_SEARCH_TARGET
+    : event.target.closest("[data-property-letter]")?.dataset.propertyLetter
+      || propertyLetterAtPoint(event.clientX, event.clientY);
   if (!letter) return;
   propertyAlphabetDragging = true;
   $("#propertyAlphabetIndex").setPointerCapture?.(event.pointerId);
@@ -2216,4 +2285,5 @@ $("#propertyAlphabetIndex").addEventListener("click", (event) => {
   const letter = event.target.closest("[data-property-letter]")?.dataset.propertyLetter;
   if (letter) jumpToPropertyLetter(letter, true);
 });
+syncMobileHeader();
 loadRuntimeConfig().finally(load);

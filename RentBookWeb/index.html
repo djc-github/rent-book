@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>小胡收租簿</title>
-  <link rel="stylesheet" href="./assets/app.css?v=20260731-1">
+  <link rel="stylesheet" href="./assets/app.css">
 </head>
 <body>
   <aside class="sidebar">
@@ -14,8 +14,11 @@
         <strong>小胡收租簿</strong>
         <small>滨湖最美美少女专用</small>
       </div>
-      <button class="mobile-refresh" id="mobileRefreshBtn" type="button" aria-label="刷新当前页面" title="刷新当前页面">刷新</button>
     </div>
+    <button class="mobile-refresh" id="mobileRefreshBtn" type="button" aria-label="刷新当前页面" title="刷新当前页面">
+      <i data-lucide="refresh-cw" aria-hidden="true"></i>
+      <span data-refresh-label>刷新</span>
+    </button>
     <nav class="nav" aria-label="主导航" data-active-view="dashboard">
       <button class="nav-item active" data-view="dashboard">总览</button>
       <button class="nav-item" data-view="properties">房态收租</button>
@@ -247,6 +250,6 @@
     </section>
   </dialog>
 
-  <script type="module" src="./assets/app.js?v=20260731-1"></script>
+  <script type="module" src="./assets/app.js"></script>
 </body>
 </html>

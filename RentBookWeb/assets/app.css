@@ -11,6 +11,7 @@
   --blue: #2563eb;
   --shadow: 0 14px 34px rgba(25, 42, 52, .08);
   --property-context-top: 107px;
+  --mobile-compact-header-height: 53px;
 }
 
 * { box-sizing: border-box; }
@@ -1460,11 +1461,21 @@ small {
     z-index: 10;
     height: auto;
     padding: 12px 12px 8px;
-    gap: 10px;
+    gap: 0;
     border-bottom: 1px solid rgba(255,255,255,.12);
+    transition: padding 200ms cubic-bezier(.22, 1, .36, 1);
   }
   .brand {
     padding: 0;
+    padding-right: 62px;
+    max-height: 34px;
+    overflow: hidden;
+    opacity: 1;
+    transform: translateY(0);
+    transition:
+      max-height 200ms cubic-bezier(.22, 1, .36, 1),
+      opacity 150ms ease,
+      transform 200ms cubic-bezier(.22, 1, .36, 1);
   }
   .brand-mark {
     width: 34px;
@@ -1477,17 +1488,35 @@ small {
     display: none;
   }
   .mobile-refresh {
+    position: absolute;
+    top: 12px;
+    right: 12px;
     width: 52px;
     min-height: 34px;
-    margin-left: auto;
-    display: grid;
-    place-items: center;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
     padding: 0;
     border: 1px solid rgba(45, 212, 191, 0.24);
     border-radius: 7px;
     background: rgba(45, 212, 191, 0.12);
     color: #e9fffb;
     font-size: 12px;
+    transition:
+      top 200ms cubic-bezier(.22, 1, .36, 1),
+      right 200ms cubic-bezier(.22, 1, .36, 1),
+      width 200ms cubic-bezier(.22, 1, .36, 1),
+      min-height 200ms cubic-bezier(.22, 1, .36, 1),
+      background-color 150ms ease;
+  }
+  .mobile-refresh .lucide {
+    width: 15px;
+    height: 15px;
+    flex: 0 0 auto;
+  }
+  .mobile-refresh.is-refreshing .lucide {
+    animation: button-loading-spin .7s linear infinite;
   }
   .mobile-refresh:active {
     background: rgba(45, 212, 191, 0.22);
@@ -1499,7 +1528,12 @@ small {
     position: relative;
     isolation: isolate;
     overflow: visible;
+    margin-top: 10px;
+    margin-right: 0;
     padding-bottom: 0;
+    transition:
+      margin-top 200ms cubic-bezier(.22, 1, .36, 1),
+      margin-right 200ms cubic-bezier(.22, 1, .36, 1);
   }
   .nav::before {
     content: "";
@@ -1538,6 +1572,32 @@ small {
   .nav .nav-item.active,
   .nav .nav-item:hover {
     background: transparent;
+  }
+  .sidebar.is-compact {
+    padding: 6px 8px;
+  }
+  .sidebar.is-compact .brand {
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(-8px);
+    pointer-events: none;
+  }
+  .sidebar.is-compact .mobile-refresh {
+    top: 6px;
+    right: 8px;
+    width: 40px;
+    min-height: 40px;
+  }
+  .sidebar.is-compact .mobile-refresh [data-refresh-label] {
+    display: none;
+  }
+  .sidebar.is-compact .nav {
+    min-height: 40px;
+    margin-top: 0;
+    margin-right: 46px;
+  }
+  .sidebar.is-compact .nav-item {
+    min-height: 40px;
   }
   .shell {
     padding: 12px 12px 84px;
@@ -2235,7 +2295,11 @@ small {
 
 @media (prefers-reduced-motion: reduce) {
   .nav::before,
-  .nav-item {
+  .nav-item,
+  .sidebar,
+  .sidebar .brand,
+  .sidebar .mobile-refresh,
+  .sidebar .nav {
     animation: none !important;
     transition: none !important;
   }
