@@ -250,6 +250,74 @@
     </section>
   </dialog>
 
+  <dialog id="paymentHistoryDialog" class="payment-ledger-dialog" aria-labelledby="paymentLedgerTitle">
+    <section class="payment-ledger" tabindex="-1">
+      <button type="button" id="paymentHistoryGrabber" class="payment-ledger-grabber" data-close-payment-history aria-label="关闭收租记录">
+        <span></span>
+        <small>下拉或点击关闭</small>
+        <i data-lucide="chevron-down" aria-hidden="true"></i>
+      </button>
+
+      <header class="payment-ledger-header">
+        <div>
+          <h2 id="paymentLedgerTitle">最近收租</h2>
+          <small>所有时间的收款记录</small>
+        </div>
+        <label class="payment-month-picker">
+          <span class="sr-only">按月份查看</span>
+          <input id="paymentMonth" type="month" aria-label="按月份查看收租记录">
+        </label>
+      </header>
+
+      <section id="paymentLedgerSummary" class="payment-ledger-summary" aria-live="polite"></section>
+
+      <div class="payment-ledger-filterbar">
+        <button type="button" class="ghost payment-filter-toggle" id="paymentFilterToggle" aria-expanded="false" aria-controls="paymentFilterForm">
+          <i data-lucide="sliders-horizontal" aria-hidden="true"></i>
+          筛选
+        </button>
+        <span id="paymentFilterSummary">日期 · 全部　房源 · 全部　金额 · 全部</span>
+      </div>
+
+      <form id="paymentFilterForm" class="payment-ledger-filters" hidden>
+        <label>
+          <span>开始日期</span>
+          <input name="from" type="date">
+        </label>
+        <label>
+          <span>结束日期</span>
+          <input name="to" type="date">
+        </label>
+        <label>
+          <span>房源</span>
+          <select name="propertyId"><option value="">全部房源</option></select>
+        </label>
+        <label>
+          <span>最低金额</span>
+          <input name="minAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="不限">
+        </label>
+        <label>
+          <span>最高金额</span>
+          <input name="maxAmount" type="number" min="0" step="0.01" inputmode="decimal" placeholder="不限">
+        </label>
+        <div class="payment-filter-actions">
+          <button type="button" class="ghost" id="paymentFilterReset">清空筛选</button>
+          <button type="submit" class="primary">应用筛选</button>
+        </div>
+      </form>
+
+      <div id="paymentLedgerProgress" class="payment-ledger-progress"></div>
+      <div id="paymentLedgerBody" class="payment-ledger-body"></div>
+
+      <footer class="payment-ledger-footer">
+        <button type="button" class="primary" data-close-payment-history>
+          <i data-lucide="circle-x" aria-hidden="true"></i>
+          关闭记录
+        </button>
+      </footer>
+    </section>
+  </dialog>
+
   <script type="module" src="./assets/app.js"></script>
 </body>
 </html>

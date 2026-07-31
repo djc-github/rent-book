@@ -27,6 +27,8 @@ public final class PaymentDtos {
     public record PaymentPage(
             List<Map<String, Object>> rows,
             String nextCursor,
-            boolean hasMore
+            boolean hasMore,
+            long totalCount,
+            BigDecimal totalAmount
     ) {}
 }

@@ -6,6 +6,7 @@ import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
 
@@ -22,9 +23,12 @@ public class PaymentController {
     public ApiResponse<PaymentDtos.PaymentPage> list(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) Long propertyId,
+            @RequestParam(required = false) BigDecimal minAmount,
+            @RequestParam(required = false) BigDecimal maxAmount,
             @RequestParam(required = false) String cursor,
             @RequestParam(defaultValue = "20") int limit) {
-        return ApiResponse.ok(service.list(from, to, cursor, limit));
+        return ApiResponse.ok(service.list(from, to, propertyId, minAmount, maxAmount, cursor, limit));
     }
 
     @PostMapping

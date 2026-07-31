@@ -1,5 +1,8 @@
 import {
+  CalendarDays,
   CalendarClock,
+  ChevronDown,
+  CircleX,
   createIcons,
   DoorOpen,
   Ellipsis,
@@ -9,6 +12,7 @@ import {
   RefreshCw,
   RotateCcw,
   Settings,
+  SlidersHorizontal,
   Trash2,
   X,
   ZoomIn,
@@ -27,9 +31,21 @@ const state = {
   expandedProperties: {},
   paymentsExpanded: false,
   paymentsLoading: false,
+  paymentsRequest: 0,
   paymentsLoaded: false,
   paymentsNextCursor: null,
   paymentsHasMore: false,
+  paymentsTotalCount: 0,
+  paymentsTotalAmount: 0,
+  paymentMonth: "",
+  paymentFiltersOpen: false,
+  paymentFilters: {
+    from: "",
+    to: "",
+    propertyId: "",
+    minAmount: "",
+    maxAmount: "",
+  },
   imageRoomId: null,
   imageUploading: false,
   imageAction: "",
@@ -150,7 +166,10 @@ const toastHomeParent = $("#toast").parentElement;
 const toastHomeNextSibling = $("#toast").nextSibling;
 let dialogOpenSequence = 0;
 const roomActionIcons = {
+  CalendarDays,
   CalendarClock,
+  ChevronDown,
+  CircleX,
   DoorOpen,
   Ellipsis,
   House,
@@ -159,6 +178,7 @@ const roomActionIcons = {
   RefreshCw,
   RotateCcw,
   Settings,
+  SlidersHorizontal,
   Trash2,
   X,
   ZoomIn,
@@ -176,6 +196,7 @@ const toYmd = (date) => {
   return `${year}-${month}-${day}`;
 };
 const today = () => toYmd(new Date());
+const currentMonth = () => today().slice(0, 7);
 const esc = (value) => String(value ?? "").replace(/[&<>"']/g, (s) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[s]));
 const fmtAmount = (value) => Number(value || 0).toLocaleString("zh-CN");
 const fmtMoney = (value) => `￥${fmtAmount(value)}`;
@@ -350,7 +371,7 @@ function syncToastLayer() {
   const activeDialog = [...document.querySelectorAll("dialog[open]")]
     .sort((left, right) => Number(left.dataset.openSequence || 0) - Number(right.dataset.openSequence || 0))
     .at(-1);
-  const dialogHost = activeDialog?.querySelector(".modal-box, .confirm-box");
+  const dialogHost = activeDialog?.querySelector(".modal-box, .confirm-box, .payment-ledger");
 
   if (dialogHost) {
     dialogHost.appendChild(toast);
@@ -717,23 +738,54 @@ async function loadProperties() {
   if (state.paymentsExpanded) await loadPayments({ reset: true });
 }
 
+function paymentMonthBounds(month) {
+  if (!/^\d{4}-\d{2}$/.test(month || "")) return {};
+  const from = `${month}-01`;
+  return { from, to: addDays(addMonths(from, 1), -1) };
+}
+
+function paymentQueryParams(cursor) {
+  const query = new URLSearchParams({ limit: "20" });
+  const filters = state.paymentFilters;
+  const monthRange = !filters.from && !filters.to ? paymentMonthBounds(state.paymentMonth) : {};
+  const from = filters.from || monthRange.from;
+  const to = filters.to || monthRange.to;
+  if (from) query.set("from", from);
+  if (to) query.set("to", to);
+  if (filters.propertyId) query.set("propertyId", filters.propertyId);
+  if (filters.minAmount !== "") query.set("minAmount", filters.minAmount);
+  if (filters.maxAmount !== "") query.set("maxAmount", filters.maxAmount);
+  if (cursor) query.set("cursor", cursor);
+  return query;
+}
+
 async function loadPayments({ reset = false } = {}) {
-  if (state.paymentsLoading) return;
+  if (state.paymentsLoading && !reset) return;
+  const requestId = ++state.paymentsRequest;
+  if (reset) {
+    state.data.payments = [];
+    state.paymentsLoaded = false;
+    state.paymentsNextCursor = null;
+    state.paymentsHasMore = false;
+  }
   state.paymentsLoading = true;
   render();
   try {
     const cursor = reset ? "" : state.paymentsNextCursor;
-    const query = new URLSearchParams({ limit: "20" });
-    if (cursor) query.set("cursor", cursor);
+    const query = paymentQueryParams(cursor);
     const page = await api(`/api/payments?${query}`);
+    if (requestId !== state.paymentsRequest) return;
     const rows = page.rows || [];
     state.data.payments = reset ? rows : [...(state.data.payments || []), ...rows];
     state.paymentsNextCursor = page.nextCursor || null;
     state.paymentsHasMore = Boolean(page.hasMore);
+    state.paymentsTotalCount = Number(page.totalCount || 0);
+    state.paymentsTotalAmount = Number(page.totalAmount || 0);
     state.paymentsLoaded = true;
   } catch (error) {
-    showToast(error.message);
+    if (requestId === state.paymentsRequest) showToast(error.message);
   } finally {
+    if (requestId !== state.paymentsRequest) return;
     state.paymentsLoading = false;
     render();
   }
@@ -749,6 +801,7 @@ function render() {
   renderPropertyAlphabet();
   scheduleRoomImages();
   schedulePropertyContextSync();
+  if ($("#paymentHistoryDialog")?.open) renderPaymentHistoryDialog();
   renderIcons();
 }
 
@@ -1003,41 +1056,129 @@ function runRoomAction(button) {
 }
 
 function renderPaymentRecords(rows) {
-  const filtered = filterRows(rows, ["propertyName", "roomNo", "method"]);
-  const latest = filtered[0];
-  const expanded = state.paymentsExpanded;
+  const latest = rows[0];
   const latestText = latest
     ? `${latest.paidDate || "-"} · ${propertyTitle(latest)} ${latest.roomNo || ""} · ${fmtMoney(latest.amount)}`
     : state.paymentsLoaded ? "暂无收租记录" : "点开查看最近收租";
-  const countText = state.paymentsLoaded ? `已加载 ${filtered.length} 笔` : "未加载";
-  return `<section class="panel payment-history ${expanded ? "expanded" : "collapsed"}">
-    <button class="payment-history-head" data-toggle-payments aria-expanded="${expanded}">
+  const countText = state.paymentsLoaded
+    ? `已加载 ${rows.length} / 共 ${state.paymentsTotalCount} 笔`
+    : "未加载";
+  return `<section class="panel payment-history collapsed">
+    <button class="payment-history-head" data-toggle-payments aria-haspopup="dialog">
       <span>
         <strong>最近收租</strong>
         <small>${esc(latestText)}</small>
       </span>
       <span class="payment-history-meta">
         <span class="tag">${countText}</span>
-        <span class="toggle-mark">${expanded ? "点击收起" : "点击查看"}</span>
+        <span class="toggle-mark">点击查看</span>
       </span>
     </button>
-    ${expanded ? renderPaymentRecordBody(filtered) : ""}
   </section>`;
+}
+
+function paymentMonthLabel(month = state.paymentMonth) {
+  if (!/^\d{4}-\d{2}$/.test(month || "")) return "筛选结果";
+  const [year, value] = month.split("-");
+  return `${year}年${Number(value)}月`;
+}
+
+function paymentDateLabel(value) {
+  const parts = String(value || "").split("-").map(Number);
+  if (parts.length !== 3 || parts.some(Number.isNaN)) return value || "日期未填写";
+  return `${parts[1]}月${parts[2]}日`;
+}
+
+function normalizePaymentDateTime(value) {
+  return String(value || "").trim().replace(" ", "T");
+}
+
+function paymentTimeLabel(value) {
+  const normalized = normalizePaymentDateTime(value);
+  const date = normalized ? new Date(normalized) : null;
+  if (!date || Number.isNaN(date.getTime())) return "--:--";
+  return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
+function paymentFilterSummaryText() {
+  const filters = state.paymentFilters;
+  const dateText = filters.from || filters.to
+    ? `${filters.from || "最早"} 至 ${filters.to || "今天"}`
+    : paymentMonthLabel();
+  const property = (state.data.properties || []).find((item) => Number(item.id) === Number(filters.propertyId));
+  const propertyText = property ? propertyTitle(property) : "全部";
+  let amountText = "全部";
+  if (filters.minAmount !== "" && filters.maxAmount !== "") amountText = `${fmtMoney(filters.minAmount)} - ${fmtMoney(filters.maxAmount)}`;
+  else if (filters.minAmount !== "") amountText = `不少于 ${fmtMoney(filters.minAmount)}`;
+  else if (filters.maxAmount !== "") amountText = `不超过 ${fmtMoney(filters.maxAmount)}`;
+  return `日期 · ${dateText}　房源 · ${propertyText}　金额 · ${amountText}`;
+}
+
+function renderPaymentTimeline(rows) {
+  let previousDate = "";
+  return rows.map((row) => {
+    const dateChanged = row.paidDate !== previousDate;
+    previousDate = row.paidDate;
+    const groupHeader = dateChanged ? `
+      <div class="payment-day-head">
+        <i data-lucide="calendar-days" aria-hidden="true"></i>
+        <strong>${esc(paymentDateLabel(row.paidDate))}</strong>
+        <span>· ${Number(row.dailyCount || 0)} 笔 · ${fmtMoney(row.dailyAmount)}</span>
+      </div>` : "";
+    return `${groupHeader}
+      <article class="payment-ledger-row">
+        <time datetime="${esc(normalizePaymentDateTime(row.createdAt) || row.paidDate || "")}">${esc(paymentTimeLabel(row.createdAt))}</time>
+        <span class="payment-timeline-dot" aria-hidden="true"></span>
+        <div class="payment-ledger-main">
+          <strong>${esc(propertyTitle(row))}${row.roomNo ? ` · ${esc(row.roomNo)}` : ""}</strong>
+          <small>${esc(row.periodStart || "-")} 至 ${esc(row.periodEnd || "-")}${row.cycleMonths ? `　${Number(row.cycleMonths)}个月` : ""}</small>
+        </div>
+        <strong class="payment-ledger-amount">${fmtMoney(row.amount)}</strong>
+        <button type="button" class="payment-ledger-more" data-delete="payment:${row.id}" aria-label="撤销这笔收租" title="撤销收租">
+          <i data-lucide="ellipsis" aria-hidden="true"></i>
+        </button>
+      </article>`;
+  }).join("");
 }
 
 function renderPaymentRecordBody(rows) {
   if (state.paymentsLoading && !state.paymentsLoaded) return empty("正在加载收租记录...");
-  const content = table(["房源/房间", "金额", "收款日", "租期", "方式", "操作"], rows, (r) => `
-      <td><strong>${esc(r.propertyName)} ${esc(r.roomNo)}</strong></td>
-      <td>${fmtMoney(r.amount)}</td>
-      <td>${esc(r.paidDate || "-")}</td>
-      <td>${esc(r.periodStart || "-")} 至 ${esc(r.periodEnd || "-")}</td>
-      <td>${esc(r.method || "-")}</td>
-      <td class="row-actions"><button class="mini danger" data-delete="payment:${r.id}">撤销</button></td>`);
+  if (!rows.length) return empty("没有找到符合条件的收租记录");
   const more = state.paymentsHasMore
-    ? `<div class="payment-history-more"><button class="mini ghost" data-load-payments ${state.paymentsLoading ? "disabled" : ""}>${state.paymentsLoading ? "加载中..." : "加载更多"}</button></div>`
-    : rows.length ? `<div class="payment-history-end">已经到底了</div>` : "";
-  return `${content}${more}`;
+    ? `<div class="payment-history-more"><button class="ghost" data-load-payments ${state.paymentsLoading ? "disabled" : ""}>${state.paymentsLoading ? "加载中..." : "加载更多"}</button></div>`
+    : `<div class="payment-history-end">已经到底了</div>`;
+  return `${renderPaymentTimeline(rows)}${more}`;
+}
+
+function renderPaymentHistoryDialog() {
+  const dialog = $("#paymentHistoryDialog");
+  if (!dialog) return;
+  const rows = state.data.payments || [];
+  const monthPicker = $("#paymentMonth");
+  monthPicker.value = state.paymentMonth;
+
+  $("#paymentLedgerSummary").innerHTML = `
+    <div>
+      <span>${esc(state.paymentFilters.from || state.paymentFilters.to ? "筛选已收" : `${paymentMonthLabel()}已收`)}</span>
+      <strong>${fmtMoney(state.paymentsTotalAmount)}</strong>
+    </div>
+    <div>
+      <small>收款笔数</small>
+      <strong>${state.paymentsTotalCount} 笔</strong>
+    </div>`;
+  $("#paymentFilterSummary").textContent = paymentFilterSummaryText();
+  $("#paymentLedgerProgress").innerHTML = `<span>已加载 ${rows.length} / 共 ${state.paymentsTotalCount} 笔</span><span>按收款时间</span>`;
+  $("#paymentLedgerBody").innerHTML = renderPaymentRecordBody(rows);
+
+  const filterForm = $("#paymentFilterForm");
+  filterForm.hidden = !state.paymentFiltersOpen;
+  $("#paymentFilterToggle").setAttribute("aria-expanded", String(state.paymentFiltersOpen));
+  const properties = state.data.properties || [];
+  filterForm.elements.propertyId.innerHTML = `<option value="">全部房源</option>${properties.map((property) => `
+    <option value="${property.id}">${esc(propertyTitle(property))}</option>`).join("")}`;
+  Object.entries(state.paymentFilters).forEach(([name, value]) => {
+    if (filterForm.elements[name]) filterForm.elements[name].value = value;
+  });
 }
 
 const formDefs = {
@@ -1872,10 +2013,66 @@ function toggleProperty(propertyId) {
   render();
 }
 
-async function togglePayments() {
-  state.paymentsExpanded = !state.paymentsExpanded;
-  render();
-  if (state.paymentsExpanded && !state.paymentsLoaded) await loadPayments({ reset: true });
+async function openPaymentHistory() {
+  const dialog = $("#paymentHistoryDialog");
+  if (dialog.open) return;
+  state.paymentsExpanded = true;
+  state.paymentMonth ||= currentMonth();
+  renderPaymentHistoryDialog();
+  showLockedDialog(dialog);
+  dialog.querySelector(".payment-ledger")?.focus({ preventScroll: true });
+  renderIcons();
+  if (!state.paymentsLoaded) await loadPayments({ reset: true });
+}
+
+function closePaymentHistory() {
+  const dialog = $("#paymentHistoryDialog");
+  state.paymentsExpanded = false;
+  state.paymentFiltersOpen = false;
+  if (dialog.open) closeDialog(dialog);
+  document.querySelector("[data-toggle-payments]")?.focus({ preventScroll: true });
+}
+
+function togglePayments() {
+  if ($("#paymentHistoryDialog").open) return closePaymentHistory();
+  return openPaymentHistory();
+}
+
+function togglePaymentFilters() {
+  state.paymentFiltersOpen = !state.paymentFiltersOpen;
+  renderPaymentHistoryDialog();
+  renderIcons();
+}
+
+async function applyPaymentFilters(form) {
+  const formData = new FormData(form);
+  const filters = {
+    from: String(formData.get("from") || ""),
+    to: String(formData.get("to") || ""),
+    propertyId: String(formData.get("propertyId") || ""),
+    minAmount: String(formData.get("minAmount") || ""),
+    maxAmount: String(formData.get("maxAmount") || ""),
+  };
+  if (filters.from && filters.to && filters.from > filters.to) return showToast("开始日期不能晚于结束日期");
+  if ((filters.minAmount !== "" && Number(filters.minAmount) < 0)
+      || (filters.maxAmount !== "" && Number(filters.maxAmount) < 0)) {
+    return showToast("金额不能小于 0");
+  }
+  if (filters.minAmount !== "" && filters.maxAmount !== ""
+      && Number(filters.minAmount) > Number(filters.maxAmount)) {
+    return showToast("最低金额不能大于最高金额");
+  }
+  state.paymentFilters = filters;
+  if (filters.from || filters.to) state.paymentMonth = "";
+  state.paymentFiltersOpen = false;
+  await loadPayments({ reset: true });
+}
+
+async function resetPaymentFilters() {
+  state.paymentFilters = { from: "", to: "", propertyId: "", minAmount: "", maxAmount: "" };
+  state.paymentMonth = currentMonth();
+  state.paymentFiltersOpen = false;
+  await loadPayments({ reset: true });
 }
 
 function filterDueRows(rows) {
@@ -2186,6 +2383,32 @@ $("#roomActionsDialog").addEventListener("click", (event) => {
   const actionButton = event.target.closest(".room-action-item");
   if (actionButton) return runRoomAction(actionButton);
 });
+$("#paymentHistoryDialog").addEventListener("cancel", (event) => {
+  event.preventDefault();
+  closePaymentHistory();
+});
+$("#paymentHistoryDialog").addEventListener("click", (event) => {
+  if (event.target === event.currentTarget) return closePaymentHistory();
+  if (event.target.closest("[data-close-payment-history]")) return closePaymentHistory();
+  if (event.target.closest("[data-load-payments]")) return loadPayments();
+  const deleteButton = event.target.closest("[data-delete]");
+  if (deleteButton) return requestDelete(deleteButton.dataset.delete);
+});
+$("#paymentMonth").addEventListener("change", async (event) => {
+  state.paymentMonth = event.currentTarget.value;
+  state.paymentFilters.from = "";
+  state.paymentFilters.to = "";
+  await loadPayments({ reset: true });
+});
+$("#paymentFilterToggle").addEventListener("click", togglePaymentFilters);
+$("#paymentFilterForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const submitButton = event.submitter || event.currentTarget.querySelector("button[type='submit']");
+  return runButtonAction(submitButton, () => applyPaymentFilters(event.currentTarget), "筛选中...");
+});
+$("#paymentFilterReset").addEventListener("click", (event) => (
+  runButtonAction(event.currentTarget, resetPaymentFilters, "清空中...")
+));
 
 $("#content").addEventListener("click", (event) => {
   const viewButton = event.target.closest("[data-view-go]");

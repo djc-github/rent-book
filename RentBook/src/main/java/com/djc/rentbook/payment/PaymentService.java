@@ -5,6 +5,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
@@ -26,13 +27,24 @@ public class PaymentService {
         this.mapper = mapper;
     }
 
-    public PaymentDtos.PaymentPage list(LocalDate from, LocalDate to, String cursor, int limit) {
+    public PaymentDtos.PaymentPage list(LocalDate from,
+                                        LocalDate to,
+                                        Long propertyId,
+                                        BigDecimal minAmount,
+                                        BigDecimal maxAmount,
+                                        String cursor,
+                                        int limit) {
+        validateFilters(from, to, propertyId, minAmount, maxAmount);
         int pageSize = normalizeLimit(limit);
         PaymentCursor parsedCursor = parseCursor(cursor);
-        log.debug("Listing rent payments from={}, to={}, cursorPresent={}, limit={}", from, to, parsedCursor != null, pageSize);
+        log.debug("Listing rent payments from={}, to={}, propertyId={}, minAmount={}, maxAmount={}, cursorPresent={}, limit={}",
+                from, to, propertyId, minAmount, maxAmount, parsedCursor != null, pageSize);
         List<Map<String, Object>> rows = mapper.listPage(
                 from,
                 to,
+                propertyId,
+                minAmount,
+                maxAmount,
                 parsedCursor == null ? null : parsedCursor.paidDate(),
                 parsedCursor == null ? null : parsedCursor.createdAt(),
                 parsedCursor == null ? null : parsedCursor.id(),
@@ -41,7 +53,12 @@ public class PaymentService {
         boolean hasMore = rows.size() > pageSize;
         List<Map<String, Object>> pageRows = hasMore ? new ArrayList<>(rows.subList(0, pageSize)) : rows;
         String nextCursor = hasMore ? encodeCursor(pageRows.get(pageRows.size() - 1)) : null;
-        return new PaymentDtos.PaymentPage(pageRows, nextCursor, hasMore);
+        Map<String, Object> summary = mapper.summarize(from, to, propertyId, minAmount, maxAmount);
+        long totalCount = asLong(summary.get("total_count"));
+        BigDecimal totalAmount = asBigDecimal(summary.get("total_amount"));
+        log.debug("Listed rent payments returned={}, totalCount={}, totalAmount={}, hasMore={}",
+                pageRows.size(), totalCount, totalAmount, hasMore);
+        return new PaymentDtos.PaymentPage(pageRows, nextCursor, hasMore, totalCount, totalAmount);
     }
 
     @Transactional
@@ -122,6 +139,25 @@ public class PaymentService {
         return Math.min(limit, MAX_PAGE_SIZE);
     }
 
+    private void validateFilters(LocalDate from,
+                                 LocalDate to,
+                                 Long propertyId,
+                                 BigDecimal minAmount,
+                                 BigDecimal maxAmount) {
+        if (from != null && to != null && from.isAfter(to)) {
+            throw new IllegalArgumentException("开始日期不能晚于结束日期");
+        }
+        if (propertyId != null && propertyId <= 0) {
+            throw new IllegalArgumentException("房源筛选条件无效");
+        }
+        if ((minAmount != null && minAmount.signum() < 0) || (maxAmount != null && maxAmount.signum() < 0)) {
+            throw new IllegalArgumentException("金额筛选不能小于 0");
+        }
+        if (minAmount != null && maxAmount != null && minAmount.compareTo(maxAmount) > 0) {
+            throw new IllegalArgumentException("最低金额不能大于最高金额");
+        }
+    }
+
     private PaymentCursor parseCursor(String cursor) {
         if (cursor == null || cursor.isBlank()) {
             return null;
@@ -164,10 +200,23 @@ public class PaymentService {
     }
 
     private Long asLong(Object value) {
+        if (value == null) {
+            return 0L;
+        }
         if (value instanceof Number number) {
             return number.longValue();
         }
         return Long.parseLong(String.valueOf(value));
+    }
+
+    private BigDecimal asBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal amount) {
+            return amount;
+        }
+        return new BigDecimal(String.valueOf(value));
     }
 
     private record PaymentCursor(LocalDate paidDate, OffsetDateTime createdAt, Long id) {

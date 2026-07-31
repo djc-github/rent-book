@@ -7,6 +7,7 @@ import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.LocalDate;
 import java.util.List;
@@ -31,9 +32,57 @@ public interface PaymentMapper {
 
     @Select("""
             <script>
-            select pay.*,
-                   coalesce(nullif(p.address, ''), p.name) as property_name,
-                   r.room_no
+            with filtered as (
+                select pay.*,
+                       coalesce(nullif(p.address, ''), p.name) as property_name,
+                       r.room_no,
+                       p.id as property_id
+                from rent_payments pay
+                left join contracts c on c.id = pay.contract_id
+                join rooms r on r.id = coalesce(pay.room_id, c.room_id)
+                join properties p on p.id = r.property_id
+                where pay.paid_date >= coalesce(#{from,jdbcType=DATE}, date '1900-01-01')
+                  and pay.paid_date &lt;= coalesce(#{to,jdbcType=DATE}, date '2999-12-31')
+                  and pay.deleted = false
+                  <if test="propertyId != null">
+                  and p.id = #{propertyId}
+                  </if>
+                  <if test="minAmount != null">
+                  and pay.amount >= #{minAmount}
+                  </if>
+                  <if test="maxAmount != null">
+                  and pay.amount &lt;= #{maxAmount}
+                  </if>
+            ), payment_rows as (
+                select filtered.*,
+                       count(*) over (partition by paid_date) as daily_count,
+                       sum(amount) over (partition by paid_date) as daily_amount
+                from filtered
+            )
+            select *
+            from payment_rows
+            where 1 = 1
+              <if test="cursorPaidDate != null and cursorCreatedAt != null and cursorId != null">
+              and (paid_date, created_at, id) &lt; (#{cursorPaidDate}, #{cursorCreatedAt}, #{cursorId})
+              </if>
+            order by paid_date desc, created_at desc, id desc
+            limit #{limit}
+            </script>
+            """)
+    List<Map<String, Object>> listPage(@Param("from") LocalDate from,
+                                       @Param("to") LocalDate to,
+                                       @Param("propertyId") Long propertyId,
+                                       @Param("minAmount") BigDecimal minAmount,
+                                       @Param("maxAmount") BigDecimal maxAmount,
+                                       @Param("cursorPaidDate") LocalDate cursorPaidDate,
+                                       @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
+                                       @Param("cursorId") Long cursorId,
+                                       @Param("limit") int limit);
+
+    @Select("""
+            <script>
+            select count(*) as total_count,
+                   coalesce(sum(pay.amount), 0) as total_amount
             from rent_payments pay
             left join contracts c on c.id = pay.contract_id
             join rooms r on r.id = coalesce(pay.room_id, c.room_id)
@@ -41,19 +90,22 @@ public interface PaymentMapper {
             where pay.paid_date >= coalesce(#{from,jdbcType=DATE}, date '1900-01-01')
               and pay.paid_date &lt;= coalesce(#{to,jdbcType=DATE}, date '2999-12-31')
               and pay.deleted = false
-              <if test="cursorPaidDate != null and cursorCreatedAt != null and cursorId != null">
-              and (pay.paid_date, pay.created_at, pay.id) &lt; (#{cursorPaidDate}, #{cursorCreatedAt}, #{cursorId})
+              <if test="propertyId != null">
+              and p.id = #{propertyId}
               </if>
-            order by pay.paid_date desc, pay.created_at desc, pay.id desc
-            limit #{limit}
+              <if test="minAmount != null">
+              and pay.amount >= #{minAmount}
+              </if>
+              <if test="maxAmount != null">
+              and pay.amount &lt;= #{maxAmount}
+              </if>
             </script>
             """)
-    List<Map<String, Object>> listPage(@Param("from") LocalDate from,
-                                       @Param("to") LocalDate to,
-                                       @Param("cursorPaidDate") LocalDate cursorPaidDate,
-                                       @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
-                                       @Param("cursorId") Long cursorId,
-                                       @Param("limit") int limit);
+    Map<String, Object> summarize(@Param("from") LocalDate from,
+                                  @Param("to") LocalDate to,
+                                  @Param("propertyId") Long propertyId,
+                                  @Param("minAmount") BigDecimal minAmount,
+                                  @Param("maxAmount") BigDecimal maxAmount);
 
     @Select("select * from rent_payments where id = #{id} and deleted = false")
     PaymentRecord find(@Param("id") Long id);
