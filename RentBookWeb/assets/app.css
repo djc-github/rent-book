@@ -584,6 +584,14 @@ tr:last-child td { border-bottom: 0; }
 .room-primary-action {
   width: 100%;
 }
+.room-collect-amount {
+  display: none;
+  font-variant-numeric: tabular-nums;
+}
+.room-card-actions .room-collect-amount {
+  display: inline;
+  margin-left: 5px;
+}
 .room-more-button {
   width: 42px;
   min-width: 42px;
@@ -2304,4 +2312,3 @@ small {
     transition: none !important;
   }
 }
-

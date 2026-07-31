@@ -1510,7 +1510,9 @@ function collectButton(room, extraClass = "") {
   if (!info.enabled) {
     return `<button class="mini ghost collect-disabled ${extraClass}" disabled title="${esc(info.reason)}">${esc(info.label || "暂不可收")}</button>`;
   }
-  return `<button class="mini primary ${extraClass}" data-request-collect="${info.id}">${info.label}</button>`;
+  return `<button class="mini primary ${extraClass}" data-request-collect="${info.id}">
+    <span>${esc(info.label)}</span><span class="room-collect-amount">${fmtMoney(info.amount)}</span>
+  </button>`;
 }
 
 function getCollectRoom(roomId) {
