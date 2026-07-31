@@ -140,4 +140,16 @@ public interface MutationMapper {
             where expires_at < now() - interval '1 day'
             """)
     int deleteExpiredIdempotencyRecords();
+
+    @Delete("""
+            delete from data_change_logs
+            where created_at < #{cutoff}
+            """)
+    int deleteExpiredDataChangeLogs(@Param("cutoff") OffsetDateTime cutoff);
+
+    @Delete("""
+            delete from operation_logs
+            where created_at < #{cutoff}
+            """)
+    int deleteExpiredOperationLogs(@Param("cutoff") OffsetDateTime cutoff);
 }

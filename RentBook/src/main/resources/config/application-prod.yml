@@ -21,6 +21,10 @@ logging:
     com.djc.rentbook: info
 
 rentbook:
+  audit:
+    retention-years: ${RENTBOOK_AUDIT_RETENTION_YEARS:3}
+    cleanup-cron: "${RENTBOOK_AUDIT_CLEANUP_CRON:0 45 3 * * *}"
+    zone: ${RENTBOOK_AUDIT_ZONE:Asia/Shanghai}
   cors:
     allowed-origins: ${RENTBOOK_CORS_ALLOWED_ORIGINS:http://39.97.238.68,http://39.97.238.68:5173,http://39.97.238.68:8080,http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080}
   upload:

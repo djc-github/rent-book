@@ -29,6 +29,10 @@ logging:
     com.djc.rentbook: debug
 
 rentbook:
+  audit:
+    retention-years: ${RENTBOOK_AUDIT_RETENTION_YEARS:3}
+    cleanup-cron: "${RENTBOOK_AUDIT_CLEANUP_CRON:0 45 3 * * *}"
+    zone: ${RENTBOOK_AUDIT_ZONE:Asia/Shanghai}
   idempotency:
     cleanup-cron: "0 30 3 * * *"
   lease-expire:
