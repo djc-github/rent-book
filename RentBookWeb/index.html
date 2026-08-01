@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="./assets/app.css">
 </head>
 <body>
+  <div id="ambientPetals" class="ambient-petals" aria-hidden="true"></div>
   <aside class="sidebar">
     <div class="brand">
       <span class="brand-mark">胡</span>
@@ -267,7 +268,7 @@
           <span class="sr-only">按月份查看</span>
           <span class="payment-month-control">
             <input id="paymentMonth" type="month" aria-label="按月份查看收租记录">
-            <span class="payment-month-placeholder">全部日期</span>
+            <span class="payment-month-label" id="paymentMonthLabel">全部日期</span>
             <i data-lucide="chevron-down" aria-hidden="true"></i>
           </span>
         </label>

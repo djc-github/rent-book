@@ -121,6 +121,8 @@ const PROPERTY_ALPHABET = "ABCDEFGHIJKLMNOPQRSTWXYZ#".split("");
 const PROPERTY_SEARCH_TARGET = "SEARCH";
 const MOBILE_HEADER_COLLAPSE_Y = 44;
 const MOBILE_HEADER_EXPAND_Y = 8;
+const panelLeafShadowUrl = new URL("./images/panel-leaf-shadow.webp", import.meta.url).href;
+const petalImageUrl = new URL("./images/petal-single.webp", import.meta.url).href;
 const PROPERTY_PINYIN_BOUNDARIES = [
   ["A", "阿"], ["B", "八"], ["C", "擦"], ["D", "搭"], ["E", "蛾"], ["F", "发"],
   ["G", "噶"], ["H", "哈"], ["J", "击"], ["K", "喀"], ["L", "拉"], ["M", "妈"],
@@ -150,6 +152,13 @@ const paymentHistoryDrag = {
 };
 let paymentHistoryDragTimer = 0;
 let paymentHistoryCloseTimer = 0;
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+const AMBIENT_PETAL_CONFIG = Object.freeze({
+  mobileCount: 32,
+  desktopCount: 52,
+  minDurationMs: 14000,
+  durationVarianceMs: 8000,
+});
 
 const demo = {
   dashboard: {
@@ -209,6 +218,73 @@ const roomActionIcons = {
 
 function renderIcons() {
   createIcons({ icons: roomActionIcons });
+}
+
+function dashboardPanelDecoration() {
+  return `
+    <div class="dashboard-panel-decoration" aria-hidden="true">
+      <img class="dashboard-leaf-shadow" src="${panelLeafShadowUrl}" alt="">
+    </div>
+    <span class="dashboard-petal-accent" aria-hidden="true">
+      <img src="${petalImageUrl}" alt="">
+      <img src="${petalImageUrl}" alt="">
+      <img src="${petalImageUrl}" alt="">
+    </span>`;
+}
+
+function ambientPetalsAllowed() {
+  return (state.view === "dashboard" || state.view === "properties")
+    && !document.hidden
+    && !reducedMotionQuery.matches
+    && !document.querySelector("dialog[open]");
+}
+
+function clearAmbientPetals() {
+  $("#ambientPetals")?.replaceChildren();
+}
+
+function syncAmbientPetals() {
+  const layer = $("#ambientPetals");
+  if (!layer) return;
+  if (!ambientPetalsAllowed()) {
+    clearAmbientPetals();
+    return;
+  }
+  const count = window.innerWidth <= 620
+    ? AMBIENT_PETAL_CONFIG.mobileCount
+    : AMBIENT_PETAL_CONFIG.desktopCount;
+  if (layer.childElementCount === count) return;
+
+  const fragment = document.createDocumentFragment();
+  for (let index = 0; index < count; index += 1) {
+    const petal = document.createElement("img");
+    const segmentHeight = 96 / count;
+    const top = 2 + segmentHeight * (index + .5) + (Math.random() - .5) * segmentHeight * .7;
+    const size = 9 + Math.random() * 10;
+    const duration = AMBIENT_PETAL_CONFIG.minDurationMs
+      + Math.random() * AMBIENT_PETAL_CONFIG.durationVarianceMs;
+    const turn = 420 + Math.random() * 620;
+    const opacity = .24 + Math.random() * .18;
+    petal.className = "ambient-petal";
+    petal.src = petalImageUrl;
+    petal.alt = "";
+    petal.style.setProperty("--petal-top", `${top}vh`);
+    petal.style.setProperty("--petal-size", `${size}px`);
+    petal.style.setProperty("--petal-delay", `${-Math.random() * duration}ms`);
+    petal.style.setProperty("--petal-duration", `${duration}ms`);
+    petal.style.setProperty("--petal-opacity", `${opacity}`);
+    petal.style.setProperty("--petal-opacity-soft", `${opacity * .88}`);
+    petal.style.setProperty("--petal-opacity-fade", `${opacity * .7}`);
+    petal.style.setProperty("--petal-wave-a", `${-22 + Math.random() * 44}px`);
+    petal.style.setProperty("--petal-wave-b", `${-36 + Math.random() * 72}px`);
+    petal.style.setProperty("--petal-drop", `${-20 + Math.random() * 90}px`);
+    petal.style.setProperty("--petal-turn-a", `${turn * .32}deg`);
+    petal.style.setProperty("--petal-turn-b", `${turn * .64}deg`);
+    petal.style.setProperty("--petal-turn-end", `${turn}deg`);
+    fragment.appendChild(petal);
+  }
+  layer.replaceChildren();
+  layer.appendChild(fragment);
 }
 
 const toYmd = (date) => {
@@ -381,6 +457,7 @@ function showLockedDialog(dialog) {
   dialog.dataset.openSequence = String(++dialogOpenSequence);
   dialog.showModal();
   syncToastLayer();
+  syncAmbientPetals();
 }
 
 function closeDialog(dialog) {
@@ -748,6 +825,7 @@ async function load() {
     }
   } finally {
     render();
+    syncAmbientPetals();
     setBusy(false);
   }
 }
@@ -854,7 +932,8 @@ function renderDashboard(data) {
       ${metric("7天内应收", s.dueSoonCount || 0, "warn")}
       ${metric("逾期未收", s.overdueCount || 0, "danger")}
     </section>
-    <section class="panel dashboard-due-panel">
+    <section class="panel dashboard-due-panel dashboard-decorated-panel">
+      ${dashboardPanelDecoration()}
       <div class="panel-head">
         <div class="panel-title"><h3>该收租的房间</h3><small>收到租金后，点一下“收租”</small></div>
         <span class="tag warn" id="dashboardDueCount">${dueCountText}</span>
@@ -862,7 +941,8 @@ function renderDashboard(data) {
       ${searchBox("搜房源地址、房号或应收日期")}
       <div id="dashboardDueResults">${renderDashboardDueResults(dueRows)}</div>
     </section>
-    <section class="panel">
+    <section class="panel dashboard-vacant-panel dashboard-decorated-panel">
+      ${dashboardPanelDecoration()}
       <div class="panel-head"><h3>空置房间</h3><span class="tag">${(data.vacantRooms || []).length} 间</span></div>
       <div class="room-grid">${(data.vacantRooms || []).map((r) => roomMiniCard(r)).join("") || empty("暂无空房")}</div>
     </section>`;
@@ -1205,7 +1285,9 @@ function renderPaymentHistoryDialog() {
   const rows = state.data.payments || [];
   const monthPicker = $("#paymentMonth");
   monthPicker.value = state.paymentMonth;
-  monthPicker.closest(".payment-month-control")?.classList.toggle("is-all", !state.paymentMonth);
+  $("#paymentMonthLabel").textContent = state.paymentMonth
+    ? paymentMonthLabel(state.paymentMonth)
+    : "全部日期";
 
   const filters = state.paymentFilters;
   const hasRecordFilters = Object.values(filters).some((value) => value !== "");
@@ -2506,6 +2588,7 @@ document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener(
   delete dialog.dataset.openSequence;
   syncToastLayer();
   unlockPageScrollIfIdle();
+  syncAmbientPetals();
 }));
 $("#confirmOkBtn").addEventListener("click", (event) => {
   const action = state.pendingConfirm;
@@ -2671,6 +2754,9 @@ window.addEventListener("scroll", () => {
   if (!propertyAlphabetDragging && previewAge > 300) hidePropertyAlphabetPreview();
 }, { passive: true });
 window.addEventListener("blur", hidePropertyAlphabetPreview);
+document.addEventListener("visibilitychange", syncAmbientPetals);
+window.addEventListener("resize", syncAmbientPetals);
+reducedMotionQuery.addEventListener?.("change", syncAmbientPetals);
 $("#propertyAlphabetIndex").addEventListener("click", (event) => {
   if (event.detail !== 0) return;
   if (event.target.closest("[data-property-search]")) return jumpToPropertySearch(true);

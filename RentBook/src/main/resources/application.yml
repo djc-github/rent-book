@@ -2,7 +2,7 @@ spring:
   application:
     name: RentBook
   profiles:
-    active: prod
+    active: local
   config:
     import:
       - optional:classpath:/config/
