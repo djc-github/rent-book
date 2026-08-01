@@ -1,13 +1,18 @@
 import {
+  ArrowDownWideNarrow,
   CalendarDays,
   CalendarClock,
   ChevronDown,
+  ChevronUp,
+  ChevronsDown,
   CircleX,
   createIcons,
   DoorOpen,
   Ellipsis,
+  Eye,
   House,
   ImagePlus,
+  LoaderCircle,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -37,6 +42,7 @@ const state = {
   paymentsHasMore: false,
   paymentsTotalCount: 0,
   paymentsTotalAmount: 0,
+  paymentsOutstandingAmount: null,
   paymentMonth: "",
   paymentFiltersOpen: false,
   paymentFilters: {
@@ -133,6 +139,17 @@ let propertyAlphabetDragging = false;
 let propertyAlphabetPreviewTimer = 0;
 let propertyAlphabetPreviewShownAt = 0;
 let mobileHeaderCompact = false;
+const paymentHistoryDrag = {
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  distance: 0,
+  movement: 0,
+  suppressClick: false,
+};
+let paymentHistoryDragTimer = 0;
+let paymentHistoryCloseTimer = 0;
 
 const demo = {
   dashboard: {
@@ -166,14 +183,19 @@ const toastHomeParent = $("#toast").parentElement;
 const toastHomeNextSibling = $("#toast").nextSibling;
 let dialogOpenSequence = 0;
 const roomActionIcons = {
+  ArrowDownWideNarrow,
   CalendarDays,
   CalendarClock,
   ChevronDown,
+  ChevronUp,
+  ChevronsDown,
   CircleX,
   DoorOpen,
   Ellipsis,
+  Eye,
   House,
   ImagePlus,
+  LoaderCircle,
   Pencil,
   RefreshCw,
   RotateCcw,
@@ -767,6 +789,9 @@ async function loadPayments({ reset = false } = {}) {
     state.paymentsLoaded = false;
     state.paymentsNextCursor = null;
     state.paymentsHasMore = false;
+    state.paymentsTotalCount = 0;
+    state.paymentsTotalAmount = 0;
+    state.paymentsOutstandingAmount = null;
   }
   state.paymentsLoading = true;
   render();
@@ -781,6 +806,9 @@ async function loadPayments({ reset = false } = {}) {
     state.paymentsHasMore = Boolean(page.hasMore);
     state.paymentsTotalCount = Number(page.totalCount || 0);
     state.paymentsTotalAmount = Number(page.totalAmount || 0);
+    state.paymentsOutstandingAmount = page.outstandingAmount === null || page.outstandingAmount === undefined
+      ? null
+      : Number(page.outstandingAmount || 0);
     state.paymentsLoaded = true;
   } catch (error) {
     if (requestId === state.paymentsRequest) showToast(error.message);
@@ -1078,9 +1106,14 @@ function renderPaymentRecords(rows) {
 }
 
 function paymentMonthLabel(month = state.paymentMonth) {
-  if (!/^\d{4}-\d{2}$/.test(month || "")) return "筛选结果";
+  if (!/^\d{4}-\d{2}$/.test(month || "")) return "全部";
   const [year, value] = month.split("-");
   return `${year}年${Number(value)}月`;
+}
+
+function paymentMonthShortLabel(month = state.paymentMonth) {
+  if (!/^\d{4}-\d{2}$/.test(month || "")) return "全部";
+  return `${Number(month.split("-")[1])}月`;
 }
 
 function paymentDateLabel(value) {
@@ -1104,7 +1137,7 @@ function paymentFilterSummaryText() {
   const filters = state.paymentFilters;
   const dateText = filters.from || filters.to
     ? `${filters.from || "最早"} 至 ${filters.to || "今天"}`
-    : paymentMonthLabel();
+    : paymentMonthShortLabel();
   const property = (state.data.properties || []).find((item) => Number(item.id) === Number(filters.propertyId));
   const propertyText = property ? propertyTitle(property) : "全部";
   let amountText = "全部";
@@ -1112,6 +1145,21 @@ function paymentFilterSummaryText() {
   else if (filters.minAmount !== "") amountText = `不少于 ${fmtMoney(filters.minAmount)}`;
   else if (filters.maxAmount !== "") amountText = `不超过 ${fmtMoney(filters.maxAmount)}`;
   return `日期 · ${dateText}　房源 · ${propertyText}　金额 · ${amountText}`;
+}
+
+function syncPaymentDatePlaceholder(input) {
+  input?.closest(".payment-date-control")?.classList.toggle("is-empty", !input.value);
+}
+
+function syncPaymentDatePlaceholders(form) {
+  form.querySelectorAll('.payment-date-control input[type="date"]').forEach(syncPaymentDatePlaceholder);
+}
+
+function paymentFilterSummaryMarkup() {
+  return paymentFilterSummaryText().split("　").map((part) => {
+    const [label, ...valueParts] = part.split(" · ");
+    return `<span><b>${esc(label)}</b><em>· ${esc(valueParts.join(" · "))}</em></span>`;
+  }).join("");
 }
 
 function renderPaymentTimeline(rows) {
@@ -1124,14 +1172,15 @@ function renderPaymentTimeline(rows) {
         <i data-lucide="calendar-days" aria-hidden="true"></i>
         <strong>${esc(paymentDateLabel(row.paidDate))}</strong>
         <span>· ${Number(row.dailyCount || 0)} 笔 · ${fmtMoney(row.dailyAmount)}</span>
+        <i class="payment-day-chevron" data-lucide="chevron-up" aria-hidden="true"></i>
       </div>` : "";
     return `${groupHeader}
       <article class="payment-ledger-row">
-        <time datetime="${esc(normalizePaymentDateTime(row.createdAt) || row.paidDate || "")}">${esc(paymentTimeLabel(row.createdAt))}</time>
         <span class="payment-timeline-dot" aria-hidden="true"></span>
+        <time datetime="${esc(normalizePaymentDateTime(row.createdAt) || row.paidDate || "")}">${esc(paymentTimeLabel(row.createdAt))}</time>
         <div class="payment-ledger-main">
           <strong>${esc(propertyTitle(row))}${row.roomNo ? ` · ${esc(row.roomNo)}` : ""}</strong>
-          <small>${esc(row.periodStart || "-")} 至 ${esc(row.periodEnd || "-")}${row.cycleMonths ? `　${Number(row.cycleMonths)}个月` : ""}</small>
+          <small>${esc(row.periodStart || "-")} 至 ${esc(row.periodEnd || "-")}${row.cycleMonths ? ` <span class="payment-cycle-tag">${Number(row.cycleMonths)}个月</span>` : ""}</small>
         </div>
         <strong class="payment-ledger-amount">${fmtMoney(row.amount)}</strong>
         <button type="button" class="payment-ledger-more" data-delete="payment:${row.id}" aria-label="撤销这笔收租" title="撤销收租">
@@ -1145,7 +1194,7 @@ function renderPaymentRecordBody(rows) {
   if (state.paymentsLoading && !state.paymentsLoaded) return empty("正在加载收租记录...");
   if (!rows.length) return empty("没有找到符合条件的收租记录");
   const more = state.paymentsHasMore
-    ? `<div class="payment-history-more"><button class="ghost" data-load-payments ${state.paymentsLoading ? "disabled" : ""}>${state.paymentsLoading ? "加载中..." : "加载更多"}</button></div>`
+    ? `<div class="payment-history-more"><button class="ghost" data-load-payments ${state.paymentsLoading ? "disabled" : ""}><i data-lucide="loader-circle" aria-hidden="true"></i>${state.paymentsLoading ? "加载中..." : "加载更多"}</button></div>`
     : `<div class="payment-history-end">已经到底了</div>`;
   return `${renderPaymentTimeline(rows)}${more}`;
 }
@@ -1156,18 +1205,46 @@ function renderPaymentHistoryDialog() {
   const rows = state.data.payments || [];
   const monthPicker = $("#paymentMonth");
   monthPicker.value = state.paymentMonth;
+  monthPicker.closest(".payment-month-control")?.classList.toggle("is-all", !state.paymentMonth);
 
-  $("#paymentLedgerSummary").innerHTML = `
-    <div>
-      <span>${esc(state.paymentFilters.from || state.paymentFilters.to ? "筛选已收" : `${paymentMonthLabel()}已收`)}</span>
+  const filters = state.paymentFilters;
+  const hasRecordFilters = Object.values(filters).some((value) => value !== "");
+  const summaryLabel = hasRecordFilters
+    ? "筛选已收"
+    : state.paymentMonth ? `${paymentMonthShortLabel()}已收` : "累计已收";
+  const hasBoundedPeriod = Boolean(state.paymentMonth || filters.from || filters.to);
+  const canShowProgress = hasBoundedPeriod
+    && filters.minAmount === ""
+    && filters.maxAmount === ""
+    && state.paymentsOutstandingAmount !== null;
+  const outstandingAmount = Math.max(0, Number(state.paymentsOutstandingAmount || 0));
+  const plannedAmount = Math.max(0, state.paymentsTotalAmount + outstandingAmount);
+  const completionRate = plannedAmount > 0
+    ? Math.min(100, Math.round((state.paymentsTotalAmount / plannedAmount) * 100))
+    : 0;
+
+  const summary = $("#paymentLedgerSummary");
+  summary.classList.toggle("has-progress", canShowProgress);
+  summary.innerHTML = `
+    <div class="payment-summary-received">
+      <span>${esc(summaryLabel)} <i data-lucide="eye" aria-hidden="true"></i></span>
       <strong>${fmtMoney(state.paymentsTotalAmount)}</strong>
     </div>
-    <div>
+    <div class="payment-summary-count">
       <small>收款笔数</small>
       <strong>${state.paymentsTotalCount} 笔</strong>
-    </div>`;
-  $("#paymentFilterSummary").textContent = paymentFilterSummaryText();
-  $("#paymentLedgerProgress").innerHTML = `<span>已加载 ${rows.length} / 共 ${state.paymentsTotalCount} 笔</span><span>按收款时间</span>`;
+    </div>
+    ${canShowProgress ? `
+      <div class="payment-summary-unpaid">
+        <small>未收金额</small>
+        <strong>${fmtMoney(outstandingAmount)}</strong>
+      </div>
+      <div class="payment-summary-progress">
+        <span><i style="width:${completionRate}%"></i></span>
+        <small>已完成 ${completionRate}%，应收 ${fmtMoney(plannedAmount)}</small>
+      </div>` : ""}`;
+  $("#paymentFilterSummary").innerHTML = paymentFilterSummaryMarkup();
+  $("#paymentLedgerProgress").innerHTML = `<span>已加载 ${rows.length} / 共 ${state.paymentsTotalCount} 笔</span><span class="payment-sort-label">按收款时间 <i data-lucide="arrow-down-wide-narrow" aria-hidden="true"></i></span>`;
   $("#paymentLedgerBody").innerHTML = renderPaymentRecordBody(rows);
 
   const filterForm = $("#paymentFilterForm");
@@ -1179,6 +1256,7 @@ function renderPaymentHistoryDialog() {
   Object.entries(state.paymentFilters).forEach(([name, value]) => {
     if (filterForm.elements[name]) filterForm.elements[name].value = value;
   });
+  syncPaymentDatePlaceholders(filterForm);
 }
 
 const formDefs = {
@@ -2016,21 +2094,96 @@ function toggleProperty(propertyId) {
 async function openPaymentHistory() {
   const dialog = $("#paymentHistoryDialog");
   if (dialog.open) return;
+  resetPaymentHistoryDrag();
   state.paymentsExpanded = true;
-  state.paymentMonth ||= currentMonth();
+  state.paymentMonth = "";
+  state.paymentFilters = { from: "", to: "", propertyId: "", minAmount: "", maxAmount: "" };
+  state.paymentFiltersOpen = false;
   renderPaymentHistoryDialog();
   showLockedDialog(dialog);
   dialog.querySelector(".payment-ledger")?.focus({ preventScroll: true });
   renderIcons();
-  if (!state.paymentsLoaded) await loadPayments({ reset: true });
+  await loadPayments({ reset: true });
 }
 
 function closePaymentHistory() {
   const dialog = $("#paymentHistoryDialog");
+  resetPaymentHistoryDrag();
   state.paymentsExpanded = false;
   state.paymentFiltersOpen = false;
   if (dialog.open) closeDialog(dialog);
   document.querySelector("[data-toggle-payments]")?.focus({ preventScroll: true });
+}
+
+function resetPaymentHistoryDrag() {
+  window.clearTimeout(paymentHistoryDragTimer);
+  window.clearTimeout(paymentHistoryCloseTimer);
+  paymentHistoryDrag.active = false;
+  paymentHistoryDrag.pointerId = null;
+  paymentHistoryDrag.distance = 0;
+  paymentHistoryDrag.movement = 0;
+  paymentHistoryDrag.suppressClick = false;
+  const ledger = $("#paymentHistoryDialog .payment-ledger");
+  ledger?.classList.remove("is-dragging", "is-settling");
+  ledger?.style.removeProperty("transform");
+}
+
+function beginPaymentHistoryDrag(event) {
+  if (!window.matchMedia("(max-width: 620px)").matches) return;
+  if (event.pointerType === "mouse" && event.button !== 0) return;
+  const ledger = $("#paymentHistoryDialog .payment-ledger");
+  if (!ledger || !$("#paymentHistoryDialog").open) return;
+  window.clearTimeout(paymentHistoryDragTimer);
+  window.clearTimeout(paymentHistoryCloseTimer);
+  paymentHistoryDrag.active = true;
+  paymentHistoryDrag.pointerId = event.pointerId;
+  paymentHistoryDrag.startX = event.clientX;
+  paymentHistoryDrag.startY = event.clientY;
+  paymentHistoryDrag.distance = 0;
+  paymentHistoryDrag.movement = 0;
+  paymentHistoryDrag.suppressClick = false;
+  ledger.classList.remove("is-settling");
+  ledger.classList.add("is-dragging");
+  event.currentTarget.setPointerCapture?.(event.pointerId);
+}
+
+function movePaymentHistoryDrag(event) {
+  if (!paymentHistoryDrag.active || event.pointerId !== paymentHistoryDrag.pointerId) return;
+  const deltaX = event.clientX - paymentHistoryDrag.startX;
+  const deltaY = event.clientY - paymentHistoryDrag.startY;
+  const distance = Math.max(0, deltaY);
+  paymentHistoryDrag.distance = Math.min(distance, window.innerHeight * 0.72);
+  paymentHistoryDrag.movement = Math.max(paymentHistoryDrag.movement, Math.hypot(deltaX, deltaY));
+  paymentHistoryDrag.suppressClick = paymentHistoryDrag.movement > 6;
+  const ledger = $("#paymentHistoryDialog .payment-ledger");
+  if (ledger) ledger.style.transform = `translate3d(0, ${paymentHistoryDrag.distance}px, 0)`;
+  if (paymentHistoryDrag.distance > 0) event.preventDefault();
+}
+
+function finishPaymentHistoryDrag(event, cancelled = false) {
+  if (!paymentHistoryDrag.active || event.pointerId !== paymentHistoryDrag.pointerId) return;
+  const grabber = $("#paymentHistoryGrabber");
+  if (grabber?.hasPointerCapture?.(event.pointerId)) grabber.releasePointerCapture(event.pointerId);
+  paymentHistoryDrag.active = false;
+  paymentHistoryDrag.pointerId = null;
+  const ledger = $("#paymentHistoryDialog .payment-ledger");
+  if (!ledger) return;
+  ledger.classList.remove("is-dragging");
+  ledger.classList.add("is-settling");
+
+  if (!cancelled && paymentHistoryDrag.distance >= 72) {
+    paymentHistoryDrag.suppressClick = true;
+    ledger.style.transform = "translate3d(0, 100dvh, 0)";
+    paymentHistoryCloseTimer = window.setTimeout(closePaymentHistory, 180);
+    return;
+  }
+
+  ledger.style.transform = "translate3d(0, 0, 0)";
+  paymentHistoryDragTimer = window.setTimeout(() => {
+    ledger.classList.remove("is-settling");
+    ledger.style.removeProperty("transform");
+    paymentHistoryDrag.suppressClick = false;
+  }, 220);
 }
 
 function togglePayments() {
@@ -2070,7 +2223,7 @@ async function applyPaymentFilters(form) {
 
 async function resetPaymentFilters() {
   state.paymentFilters = { from: "", to: "", propertyId: "", minAmount: "", maxAmount: "" };
-  state.paymentMonth = currentMonth();
+  state.paymentMonth = "";
   state.paymentFiltersOpen = false;
   await loadPayments({ reset: true });
 }
@@ -2388,12 +2541,20 @@ $("#paymentHistoryDialog").addEventListener("cancel", (event) => {
   closePaymentHistory();
 });
 $("#paymentHistoryDialog").addEventListener("click", (event) => {
+  if (event.target.closest("#paymentHistoryGrabber") && paymentHistoryDrag.suppressClick) {
+    event.preventDefault();
+    return;
+  }
   if (event.target === event.currentTarget) return closePaymentHistory();
   if (event.target.closest("[data-close-payment-history]")) return closePaymentHistory();
   if (event.target.closest("[data-load-payments]")) return loadPayments();
   const deleteButton = event.target.closest("[data-delete]");
   if (deleteButton) return requestDelete(deleteButton.dataset.delete);
 });
+$("#paymentHistoryGrabber").addEventListener("pointerdown", beginPaymentHistoryDrag);
+$("#paymentHistoryGrabber").addEventListener("pointermove", movePaymentHistoryDrag);
+$("#paymentHistoryGrabber").addEventListener("pointerup", finishPaymentHistoryDrag);
+$("#paymentHistoryGrabber").addEventListener("pointercancel", (event) => finishPaymentHistoryDrag(event, true));
 $("#paymentMonth").addEventListener("change", async (event) => {
   state.paymentMonth = event.currentTarget.value;
   state.paymentFilters.from = "";
@@ -2401,6 +2562,12 @@ $("#paymentMonth").addEventListener("change", async (event) => {
   await loadPayments({ reset: true });
 });
 $("#paymentFilterToggle").addEventListener("click", togglePaymentFilters);
+$("#paymentFilterForm").addEventListener("input", (event) => {
+  if (event.target.matches('input[type="date"]')) syncPaymentDatePlaceholder(event.target);
+});
+$("#paymentFilterForm").addEventListener("change", (event) => {
+  if (event.target.matches('input[type="date"]')) syncPaymentDatePlaceholder(event.target);
+});
 $("#paymentFilterForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const submitButton = event.submitter || event.currentTarget.querySelector("button[type='submit']");

@@ -29,6 +29,7 @@ public final class PaymentDtos {
             String nextCursor,
             boolean hasMore,
             long totalCount,
-            BigDecimal totalAmount
+            BigDecimal totalAmount,
+            BigDecimal outstandingAmount
     ) {}
 }

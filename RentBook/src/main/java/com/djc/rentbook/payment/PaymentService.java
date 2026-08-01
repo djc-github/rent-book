@@ -56,9 +56,14 @@ public class PaymentService {
         Map<String, Object> summary = mapper.summarize(from, to, propertyId, minAmount, maxAmount);
         long totalCount = asLong(summary.get("total_count"));
         BigDecimal totalAmount = asBigDecimal(summary.get("total_amount"));
-        log.debug("Listed rent payments returned={}, totalCount={}, totalAmount={}, hasMore={}",
-                pageRows.size(), totalCount, totalAmount, hasMore);
-        return new PaymentDtos.PaymentPage(pageRows, nextCursor, hasMore, totalCount, totalAmount);
+        BigDecimal outstandingAmount = from == null && to == null
+                ? null
+                : asBigDecimal(mapper.summarizeOutstanding(from, to, propertyId));
+        log.debug("Listed rent payments returned={}, totalCount={}, totalAmount={}, outstandingAmount={}, hasMore={}",
+                pageRows.size(), totalCount, totalAmount, outstandingAmount, hasMore);
+        return new PaymentDtos.PaymentPage(
+                pageRows, nextCursor, hasMore, totalCount, totalAmount, outstandingAmount
+        );
     }
 
     @Transactional

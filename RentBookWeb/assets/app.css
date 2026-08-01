@@ -316,8 +316,17 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   overscroll-behavior: contain;
   background: #fff;
   color: var(--text);
+  font-family: "Microsoft YaHei UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   scrollbar-gutter: stable;
   outline: none;
+  transition: transform 180ms cubic-bezier(.2, .8, .2, 1);
+  will-change: transform;
+}
+.payment-ledger.is-dragging {
+  transition: none;
+  user-select: none;
 }
 .payment-ledger-grabber {
   width: 100%;
@@ -329,6 +338,11 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   border: 0;
   background: white;
   color: var(--brand);
+  cursor: grab;
+  touch-action: none;
+}
+.payment-ledger.is-dragging .payment-ledger-grabber {
+  cursor: grabbing;
 }
 .payment-ledger-grabber > span {
   width: 42px;
@@ -349,6 +363,11 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 .payment-ledger-grabber:focus-visible {
   box-shadow: inset 0 0 0 2px rgba(15, 118, 110, .35);
 }
+@media (prefers-reduced-motion: reduce) {
+  .payment-ledger {
+    transition: none;
+  }
+}
 .payment-ledger-header {
   padding: 8px 28px 18px;
   display: flex;
@@ -364,13 +383,51 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 .payment-ledger-header small {
   color: var(--muted);
 }
+.payment-month-control {
+  position: relative;
+  display: block;
+}
 .payment-month-picker input {
   min-height: 44px;
-  padding: 8px 12px;
+  padding: 8px 36px 8px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: white;
   color: var(--text);
+}
+.payment-month-picker input::-webkit-calendar-picker-indicator {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.payment-month-control > .lucide {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--muted);
+  pointer-events: none;
+  translate: 0 -50%;
+}
+.payment-month-placeholder {
+  display: none;
+}
+.payment-month-control.is-all .payment-month-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  display: block;
+  color: var(--text);
+  pointer-events: none;
+  translate: 0 -50%;
+}
+.payment-month-control.is-all input {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 .payment-ledger-summary {
   margin: 0 28px 18px;
@@ -383,6 +440,9 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   border-radius: 8px;
   background: #f4faf9;
 }
+.payment-ledger-summary.has-progress {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
 .payment-ledger-summary > div {
   display: grid;
   gap: 6px;
@@ -391,18 +451,50 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 .payment-ledger-summary small {
   color: var(--muted);
 }
-.payment-ledger-summary > div:first-child strong {
+.payment-ledger-summary span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.payment-ledger-summary span .lucide {
+  width: 18px;
+  height: 18px;
+}
+.payment-summary-received strong {
   color: var(--brand-strong);
   font-size: clamp(30px, 5vw, 48px);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
-.payment-ledger-summary > div:last-child {
+.payment-summary-count,
+.payment-summary-unpaid {
   min-width: 100px;
   text-align: right;
 }
-.payment-ledger-summary > div:last-child strong {
+.payment-summary-count strong,
+.payment-summary-unpaid strong {
   font-size: 20px;
+}
+.payment-summary-unpaid strong {
+  color: #c94e43;
+}
+.payment-summary-progress {
+  grid-column: 1 / -1;
+  gap: 7px !important;
+}
+.payment-summary-progress > span {
+  width: 100%;
+  height: 6px;
+  display: block;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dce9e7;
+}
+.payment-summary-progress > span > i {
+  height: 100%;
+  display: block;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--brand-strong), #67aaa2);
 }
 .payment-ledger-filterbar {
   margin: 0 28px;
@@ -416,11 +508,15 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   background: #fbfcfc;
 }
 .payment-filter-toggle {
+  flex: 0 0 auto;
+  min-width: 78px;
   min-height: 38px;
   display: inline-flex;
   align-items: center;
   gap: 7px;
   border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
   color: var(--text);
   font-weight: 700;
 }
@@ -430,10 +526,41 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 }
 .payment-ledger-filterbar > span {
   min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(88px, .9fr) minmax(96px, 1.15fr) minmax(78px, .8fr);
+  align-items: center;
+  flex: 1;
+  gap: 0;
   overflow: hidden;
   color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.payment-ledger-filterbar > span > span {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 14px;
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+}
+.payment-ledger-filterbar b {
+  color: var(--text);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+.payment-ledger-filterbar em {
+  min-width: 0;
+  display: block;
+  overflow: hidden;
+  color: var(--muted);
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.payment-ledger-filterbar > span > span:first-child {
+  border-left: 0;
 }
 .payment-ledger-filters {
   margin: 10px 28px 0;
@@ -465,6 +592,27 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   background: white;
   color: var(--text);
 }
+.payment-date-control {
+  position: relative;
+  display: block;
+}
+.payment-date-placeholder {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 10px;
+  right: 34px;
+  display: none;
+  padding: 2px 0;
+  background: white;
+  color: var(--muted);
+  line-height: 1;
+  pointer-events: none;
+  transform: translateY(-50%);
+}
+.payment-date-control.is-empty .payment-date-placeholder {
+  display: block;
+}
 .payment-filter-actions {
   grid-column: 1 / -1;
   display: flex;
@@ -479,6 +627,15 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   gap: 12px;
   color: var(--muted);
   font-size: 13px;
+}
+.payment-sort-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.payment-sort-label .lucide {
+  width: 16px;
+  height: 16px;
 }
 .payment-ledger-body {
   margin: 0 28px;
@@ -503,36 +660,55 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 .payment-day-head span {
   color: #316d68;
 }
+.payment-day-chevron {
+  width: 16px;
+  height: 16px;
+  margin-left: auto;
+}
 .payment-ledger-row {
   position: relative;
   min-height: 78px;
   display: grid;
-  grid-template-columns: 58px 18px minmax(0, 1fr) auto 36px;
+  grid-template-columns: 18px 58px minmax(0, 1fr) auto 36px;
   gap: 8px;
   align-items: center;
-  border-bottom: 1px solid #e6ecee;
+  --ledger-dot-column: 18px;
+  --ledger-time-column: 58px;
+  --ledger-row-gap: 8px;
+}
+.payment-ledger-row::before {
+  position: absolute;
+  z-index: 0;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--ledger-dot-column) / 2);
+  border-left: 1px dashed #9ccac4;
+  content: "";
+}
+.payment-ledger-row::after {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: calc(var(--ledger-dot-column) + var(--ledger-time-column) + var(--ledger-row-gap) * 2);
+  height: 1px;
+  background: #e6ecee;
+  content: "";
 }
 .payment-ledger-row time {
   color: var(--muted);
   font-size: 13px;
   font-variant-numeric: tabular-nums;
-  text-align: right;
+  text-align: left;
 }
 .payment-timeline-dot {
   position: relative;
+  z-index: 1;
   width: 12px;
   height: 12px;
   display: block;
   border-radius: 50%;
   background: var(--brand);
-}
-.payment-timeline-dot::after {
-  position: absolute;
-  top: 12px;
-  bottom: -42px;
-  left: 5px;
-  border-left: 1px dashed #9ccac4;
-  content: "";
+  box-shadow: 0 0 0 3px white;
 }
 .payment-ledger-main {
   min-width: 0;
@@ -544,6 +720,17 @@ h3 { margin: 0 0 12px; font-size: 16px; }
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.payment-cycle-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: #e8f5f2;
+  color: var(--brand-strong);
+  line-height: 1.35;
 }
 .payment-ledger-main strong {
   font-size: 15px;
@@ -585,6 +772,16 @@ h3 { margin: 0 0 12px; font-size: 16px; }
 .payment-history-more button {
   width: min(320px, 100%);
   min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 0;
+  color: var(--brand-strong);
+}
+.payment-history-more .lucide {
+  width: 18px;
+  height: 18px;
 }
 .payment-history-end {
   color: var(--muted);
@@ -2588,49 +2785,93 @@ small {
     padding-top: max(7px, env(safe-area-inset-top));
   }
   .payment-ledger-header {
-    padding: 6px 14px 14px;
+    padding: 5px 20px 13px;
     gap: 10px;
   }
   .payment-ledger-header h2 {
-    font-size: 22px;
+    font-size: 18px;
+    font-weight: 650;
+    line-height: 1.35;
   }
   .payment-ledger-header small {
     font-size: 12px;
   }
   .payment-month-picker input {
-    width: 132px;
-    min-height: 40px;
-    padding: 6px 8px;
-    font-size: 14px;
-  }
-  .payment-ledger-summary {
-    margin: 0 12px 12px;
-    padding: 16px;
-    gap: 12px;
-  }
-  .payment-ledger-summary > div:first-child strong {
-    font-size: 34px;
-  }
-  .payment-ledger-summary > div:last-child {
-    min-width: 78px;
-  }
-  .payment-ledger-summary > div:last-child strong {
-    font-size: 17px;
-  }
-  .payment-ledger-filterbar {
-    margin: 0 12px;
-    padding: 5px 7px;
-    gap: 7px;
-  }
-  .payment-filter-toggle {
-    min-height: 36px;
-    padding-inline: 8px;
-  }
-  .payment-ledger-filterbar > span {
+    width: 118px;
+    min-height: 38px;
+    padding: 5px 30px 5px 10px;
     font-size: 12px;
   }
+  .payment-month-control.is-all .payment-month-placeholder {
+    left: 10px;
+    font-size: 12px;
+  }
+  .payment-month-control > .lucide {
+    right: 9px;
+    width: 14px;
+    height: 14px;
+  }
+  .payment-ledger-summary {
+    margin: 0 20px 13px;
+    padding: 15px 14px;
+    gap: 12px;
+  }
+  .payment-ledger-summary span,
+  .payment-ledger-summary small {
+    font-size: 12px;
+  }
+  .payment-ledger-summary span .lucide {
+    width: 16px;
+    height: 16px;
+  }
+  .payment-summary-received strong {
+    font-size: 29px;
+  }
+  .payment-summary-count,
+  .payment-summary-unpaid {
+    min-width: 78px;
+  }
+  .payment-summary-count strong,
+  .payment-summary-unpaid strong {
+    font-size: 15px;
+  }
+  .payment-ledger-summary.has-progress {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .payment-summary-progress {
+    gap: 5px !important;
+  }
+  .payment-summary-progress > span {
+    height: 5px;
+  }
+  .payment-ledger-filterbar {
+    min-height: 42px;
+    margin: 0 20px;
+    padding: 3px 7px;
+    gap: 8px;
+  }
+  .payment-filter-toggle {
+    min-width: 64px;
+    min-height: 34px;
+    padding-inline: 8px 3px;
+    gap: 5px;
+    font-size: 12px;
+  }
+  .payment-filter-toggle .lucide {
+    width: 16px;
+    height: 16px;
+  }
+  .payment-ledger-filterbar > span {
+    grid-template-columns: minmax(67px, .82fr) minmax(78px, 1fr) minmax(62px, .76fr);
+    gap: 0;
+    font-size: 11px;
+  }
+  .payment-ledger-filterbar > span > span {
+    gap: 3px;
+    padding: 0 6px;
+  }
   .payment-ledger-filters {
-    margin: 8px 12px 0;
+    margin: 8px 20px 0;
     padding: 10px;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 9px;
@@ -2646,56 +2887,73 @@ small {
     min-height: 42px;
   }
   .payment-ledger-progress {
-    margin: 0 14px;
-    padding: 14px 0 8px;
-    font-size: 12px;
+    margin: 0 20px;
+    padding: 13px 0 8px;
+    font-size: 11px;
   }
   .payment-ledger-body {
-    margin: 0 12px;
+    margin: 0 18px;
   }
   .payment-day-head {
-    min-height: 36px;
-    padding: 7px 9px;
-    font-size: 12px;
+    min-height: 30px;
+    padding: 5px 8px;
+    gap: 5px;
+    font-size: 11px;
+  }
+  .payment-day-head .lucide {
+    width: 14px;
+    height: 14px;
   }
   .payment-ledger-row {
-    min-height: 76px;
-    grid-template-columns: 43px 12px minmax(0, 1fr) auto 28px;
-    gap: 6px;
+    min-height: 60px;
+    grid-template-columns: 19px 49px minmax(0, 1fr) auto 24px;
+    gap: 5px;
+    --ledger-dot-column: 19px;
+    --ledger-time-column: 49px;
+    --ledger-row-gap: 5px;
   }
   .payment-ledger-row time {
-    font-size: 12px;
+    font-size: 11px;
   }
   .payment-timeline-dot {
     width: 10px;
     height: 10px;
-  }
-  .payment-timeline-dot::after {
-    top: 10px;
-    bottom: -44px;
-    left: 4px;
+    justify-self: center;
   }
   .payment-ledger-main {
-    gap: 5px;
+    gap: 4px;
   }
   .payment-ledger-main strong {
-    font-size: 14px;
+    font-size: 13px;
+    font-weight: 500;
   }
   .payment-ledger-main small {
-    font-size: 11px;
+    font-size: 10px;
+  }
+  .payment-cycle-tag {
+    min-height: 18px;
+    margin-left: 4px;
+    padding: 1px 5px;
+    font-size: 10px;
   }
   .payment-ledger-amount {
-    font-size: 15px;
+    font-size: 14px;
+    font-weight: 600;
   }
   .payment-ledger-more {
-    width: 28px;
-    height: 34px;
+    width: 24px;
+    height: 32px;
+  }
+  .payment-ledger-more .lucide {
+    width: 17px;
+    height: 17px;
   }
   .payment-ledger-footer {
-    padding: 10px 12px max(10px, env(safe-area-inset-bottom));
+    padding: 9px 20px max(9px, env(safe-area-inset-bottom));
   }
   .payment-ledger-footer button {
     min-height: 48px;
+    border-radius: 999px;
   }
   .toast {
     top: auto;

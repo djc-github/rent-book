@@ -4,8 +4,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -73,13 +73,29 @@ class PaymentServiceTest {
                 .thenReturn(List.of(row));
         when(mapper.summarize(from, to, 6L, minAmount, maxAmount))
                 .thenReturn(Map.of("total_count", 128L, "total_amount", new BigDecimal("16480.00")));
+        when(mapper.summarizeOutstanding(from, to, 6L)).thenReturn(new BigDecimal("1250.00"));
 
         PaymentDtos.PaymentPage page = service.list(from, to, 6L, minAmount, maxAmount, null, 20);
 
         assertThat(page.rows()).containsExactly(row);
         assertThat(page.totalCount()).isEqualTo(128L);
         assertThat(page.totalAmount()).isEqualByComparingTo("16480.00");
+        assertThat(page.outstandingAmount()).isEqualByComparingTo("1250.00");
         assertThat(page.hasMore()).isFalse();
+    }
+
+    @Test
+    void listDoesNotInventAnOutstandingTotalForAllDates() {
+        when(mapper.listPage(null, null, null, null, null, null, null, null, 21))
+                .thenReturn(List.of());
+        when(mapper.summarize(null, null, null, null, null))
+                .thenReturn(Map.of("total_count", 5L, "total_amount", new BigDecimal("10500.00")));
+
+        PaymentDtos.PaymentPage page = service.list(null, null, null, null, null, null, 20);
+
+        assertThat(page.totalAmount()).isEqualByComparingTo("10500.00");
+        assertThat(page.outstandingAmount()).isNull();
+        verify(mapper, never()).summarizeOutstanding(null, null, null);
     }
 
     @Test

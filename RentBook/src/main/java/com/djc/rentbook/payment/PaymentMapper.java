@@ -8,8 +8,8 @@ import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
 
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -106,6 +106,24 @@ public interface PaymentMapper {
                                   @Param("propertyId") Long propertyId,
                                   @Param("minAmount") BigDecimal minAmount,
                                   @Param("maxAmount") BigDecimal maxAmount);
+
+    @Select("""
+            <script>
+            select coalesce(sum(r.rent_amount * greatest(r.pay_cycle_months, 1)), 0)
+            from rooms r
+            where r.deleted = false
+              and r.status = 'RENTED'
+              and r.next_due_date is not null
+              and r.next_due_date >= coalesce(#{from,jdbcType=DATE}, date '1900-01-01')
+              and r.next_due_date &lt;= coalesce(#{to,jdbcType=DATE}, date '2999-12-31')
+              <if test="propertyId != null">
+              and r.property_id = #{propertyId}
+              </if>
+            </script>
+            """)
+    BigDecimal summarizeOutstanding(@Param("from") LocalDate from,
+                                    @Param("to") LocalDate to,
+                                    @Param("propertyId") Long propertyId);
 
     @Select("select * from rent_payments where id = #{id} and deleted = false")
     PaymentRecord find(@Param("id") Long id);
