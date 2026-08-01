@@ -1,0 +1,27 @@
+spring:
+  datasource:
+    url: ${RENTBOOK_DB_URL:jdbc:postgresql://127.0.0.1:5432/rentbook}
+    username: ${RENTBOOK_DB_USERNAME:rentbook}
+    password: ${RENTBOOK_DB_PASSWORD:}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  file:
+    name: logs/rentbook.log
+
+rentbook:
+  audit:
+    retention-years: ${RENTBOOK_AUDIT_RETENTION_YEARS:3}
+    cleanup-cron: "${RENTBOOK_AUDIT_CLEANUP_CRON:0 45 3 * * *}"
+    zone: ${RENTBOOK_AUDIT_ZONE:Asia/Shanghai}
+  cors:
+    allowed-origins: http://localhost:5173,http://127.0.0.1:5173,http://localhost:8080,http://127.0.0.1:8080

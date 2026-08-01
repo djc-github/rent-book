@@ -2,3 +2,10 @@ node_modules/
 dist/
 .vite/
 *.log
+
+# Environment-specific runtime configuration is supplied at deployment time.
+public/config/app-config.json
+
+# Local design review exports are not part of the deployable frontend source.
+artifacts/
+design-qa.md
