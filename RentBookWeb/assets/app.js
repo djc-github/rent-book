@@ -1263,8 +1263,9 @@ function renderPaymentTimeline(rows) {
           <small>${esc(row.periodStart || "-")} 至 ${esc(row.periodEnd || "-")}${row.cycleMonths ? ` <span class="payment-cycle-tag">${Number(row.cycleMonths)}个月</span>` : ""}</small>
         </div>
         <strong class="payment-ledger-amount">${fmtMoney(row.amount)}</strong>
-        <button type="button" class="payment-ledger-more" data-delete="payment:${row.id}" aria-label="撤销这笔收租" title="撤销收租">
-          <i data-lucide="ellipsis" aria-hidden="true"></i>
+        <button type="button" class="payment-ledger-undo" data-delete="payment:${row.id}" aria-label="撤销这笔收租" title="撤销收租">
+          <i data-lucide="rotate-ccw" aria-hidden="true"></i>
+          <span>撤销</span>
         </button>
       </article>`;
   }).join("");
